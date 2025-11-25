@@ -47,9 +47,9 @@ struct SoftBody {
 
 // Physics constants
 #define DAMPING_DEFAULT 0.95f
-#define SPRING_STIFFNESS_DEFAULT 1000
-#define SPRING_DAMPING_DEFAULT 0.95f
-#define FRAME_SPRING_STIFFNESS_DEFAULT 200  // Stiffer springs to frame for shape matching
+#define FRAME_SPRING_STIFFNESS_DEFAULT 200  // Base stiffness for frame-to-body springs
+#define FRAME_SPRING_STIFFNESS_RANDOM_FACTOR 0.3f  // Randomization factor: ±30% variation (0.7x to 1.3x)
+#define FRAME_SPRING_DAMPING_DEFAULT 0.95f  // Damping for frame-to-body springs
 #define FRAME_MASS 10000  // Very high mass for frame points (effectively fixed)
 
 // Integer square root function (replaces math.h sqrt)
@@ -98,7 +98,7 @@ void shape_frame_set_scale(ShapeFrame *frame, float scale);
 void shape_frame_translate(ShapeFrame *frame, GPoint offset);
 
 // Soft body functions
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, int stiffness, int damping);
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping);
 void soft_body_destroy(SoftBody *body);
 void soft_body_apply_spring_forces(SoftBody *body);
 void soft_body_apply_damping(SoftBody *body, float damping);

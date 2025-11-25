@@ -96,7 +96,7 @@ static void prv_add_random_shape(void) {
     
     // Initialize soft body
     SoftBody *body = &s_soft_bodies[s_soft_body_count];
-    soft_body_init(body, positions, shape->count, 1, SPRING_STIFFNESS_DEFAULT, SPRING_DAMPING_DEFAULT);
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT);
     s_soft_body_count++;
     
     free(positions);

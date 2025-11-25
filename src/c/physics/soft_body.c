@@ -130,7 +130,7 @@ void shape_frame_translate(ShapeFrame *frame, GPoint offset) {
     }
 }
 
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, int stiffness, int damping) {
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping) {
     body->point_count = point_count;
     
     // Allocate memory for body points
@@ -151,13 +151,18 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
 
     // Initialize frame-to-body springs (connect each frame point to corresponding body point)
     for (int i = 0; i < point_count; i++) {
+        // Calculate random stiffness multiplier: 1.0 ± FRAME_SPRING_STIFFNESS_RANDOM_FACTOR
+        // e.g., if factor is 0.3, stiffness ranges from 0.7x to 1.3x
+        float random_factor = 1.0f + ((float)(rand() % 2001 - 1000) / 1000.0f) * FRAME_SPRING_STIFFNESS_RANDOM_FACTOR;
+        int random_stiffness = (int)(FRAME_SPRING_STIFFNESS_DEFAULT * random_factor + 0.5f);
+        
         // Rest length is 0 (frame and body start at same position)
         // Frame points are at index i, body points are at index i
         spring_init(&body->springs[i],
                    &body->frame->frame_points[i],
                    &body->points[i],
                    0,  // Rest length 0 - frame drives body to its position
-                   FRAME_SPRING_STIFFNESS_DEFAULT,  // Use stiffer springs for shape matching
+                   random_stiffness,  // Randomized stiffness for shape matching
                    damping);
     }
 }
