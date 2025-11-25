@@ -2,6 +2,9 @@
 
 #include <pebble.h>
 
+// Debug drawing controls
+#define DEBUG_DRAW_ELEMENTS 0  // Set to 1 to show frame box and point mass circles, 0 to hide
+
 // Forward declarations
 typedef struct PointMass PointMass;
 typedef struct Spring Spring;
@@ -48,6 +51,10 @@ struct SoftBody {
     float start_scale;        // Initial scale factor (e.g., 0.5f for half size)
     float target_scale;       // Target scale factor (e.g., 1.0f for normal size)
     float scale_speed;        // Scale change per frame (e.g., 0.1f)
+
+    // Drawing optimization - cached GPath and points array
+    GPath *draw_path;         // Cached GPath for drawing the body
+    GPoint *draw_points;      // Cached GPoint array for the path
 };
 
 // Physics constants
@@ -108,6 +115,7 @@ void soft_body_destroy(SoftBody *body);
 void soft_body_apply_spring_forces(SoftBody *body);
 void soft_body_apply_damping(SoftBody *body, float damping);
 void soft_body_update(SoftBody *body, float dt);
+void soft_body_update_draw_path(SoftBody *body);
 void soft_body_draw(GContext *ctx, SoftBody *body);
 void soft_body_draw_frame(GContext *ctx, SoftBody *body);
 

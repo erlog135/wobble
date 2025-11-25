@@ -2,7 +2,7 @@
 #include "physics/physics.h"
 
 #define MAX_SOFT_BODIES 10
-#define PHYSICS_TIMER_MS 16  // ~60 FPS
+#define PHYSICS_TIMER_MS 33  // ~30 FPS
 
 static Window *s_window;
 static Layer *s_canvas_layer;
@@ -113,12 +113,18 @@ static void prv_physics_timer_callback(void *data) {
         SoftBody *body = &s_soft_bodies[i];
 
         // Animate frame scale from start_scale to target_scale
-        if (body->frame && body->frame->current_scale < body->target_scale) {
-            // Grow towards target scale using configurable speed
-            float new_scale = body->frame->current_scale + body->scale_speed;
-            if (new_scale > body->target_scale) {
+        if (body->frame && body->frame->current_scale != body->target_scale) {
+            // Move towards target scale using configurable speed
+            float scale_diff = body->target_scale - body->frame->current_scale;
+            float scale_step = (scale_diff > 0 ? body->scale_speed : -body->scale_speed);
+            float new_scale = body->frame->current_scale + scale_step;
+
+            // Clamp to target scale to prevent overshooting
+            if ((scale_diff > 0 && new_scale > body->target_scale) ||
+                (scale_diff < 0 && new_scale < body->target_scale)) {
                 new_scale = body->target_scale;
             }
+
             shape_frame_set_scale(body->frame, new_scale);
         }
 
@@ -143,8 +149,10 @@ static void prv_canvas_update_proc(Layer *layer, GContext *ctx) {
     // Draw all soft bodies
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_draw(ctx, &s_soft_bodies[i]);
+#if DEBUG_DRAW_ELEMENTS
         // Draw frame outline on top
         soft_body_draw_frame(ctx, &s_soft_bodies[i]);
+#endif
     }
 }
 

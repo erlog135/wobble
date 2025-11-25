@@ -170,9 +170,21 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
                    random_stiffness,  // Randomized stiffness for shape matching
                    damping);
     }
+
+    // Initialize drawing optimization - create cached GPath and points array
+    body->draw_points = (GPoint *)malloc(sizeof(GPoint) * point_count);
+    body->draw_path = NULL;  // Will be created on first draw or update
 }
 
 void soft_body_destroy(SoftBody *body) {
+    if (body->draw_path) {
+        gpath_destroy(body->draw_path);
+        body->draw_path = NULL;
+    }
+    if (body->draw_points) {
+        free(body->draw_points);
+        body->draw_points = NULL;
+    }
     if (body->frame) {
         shape_frame_destroy(body->frame);
         free(body->frame);
@@ -228,43 +240,50 @@ void soft_body_update(SoftBody *body, float dt) {
     // Frame points don't get updated - they maintain their positions unless moved directly
 }
 
+void soft_body_update_draw_path(SoftBody *body) {
+    if (body->point_count < 3 || !body->draw_points) return;
+
+    // Update the points array with current body positions
+    for (int i = 0; i < body->point_count; i++) {
+        body->draw_points[i] = body->points[i].position;
+    }
+
+    // Create or update the GPath
+    if (body->draw_path == NULL) {
+        // Create path info structure
+        GPathInfo path_info = {
+            .num_points = body->point_count,
+            .points = body->draw_points
+        };
+        body->draw_path = gpath_create(&path_info);
+    }
+    // Note: GPath automatically uses the updated points array, no need to recreate it
+}
 
 void soft_body_draw(GContext *ctx, SoftBody *body) {
     if (body->point_count < 3) return; // Need at least 3 points for a polygon
-    
-    // Create GPoint array for the path
-    GPoint *points = (GPoint *)malloc(sizeof(GPoint) * body->point_count);
-    for (int i = 0; i < body->point_count; i++) {
-        points[i] = body->points[i].position;
-    }
-    
-    // Create path info structure
-    GPathInfo path_info = {
-        .num_points = body->point_count,
-        .points = points
-    };
-    
-    // Create and draw the path
-    GPath *path = gpath_create(&path_info);
-    
+
+    // Update the cached path with current body positions
+    soft_body_update_draw_path(body);
+
+    if (!body->draw_path) return; // Failed to create path
+
     // Draw filled polygon
     graphics_context_set_fill_color(ctx, GColorWhite);
-    gpath_draw_filled(ctx, path);
-    
+    gpath_draw_filled(ctx, body->draw_path);
+
     // Draw outline
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 2);
-    gpath_draw_outline(ctx, path);
+    gpath_draw_outline(ctx, body->draw_path);
 
+#if DEBUG_DRAW_ELEMENTS
     // Draw point masses as white dots
     graphics_context_set_fill_color(ctx, GColorWhite);
     for (int i = 0; i < body->point_count; i++) {
         graphics_fill_circle(ctx, body->points[i].position, 3);
     }
-
-    // Cleanup
-    gpath_destroy(path);
-    free(points);
+#endif
 }
 
 void soft_body_draw_frame(GContext *ctx, SoftBody *body) {
