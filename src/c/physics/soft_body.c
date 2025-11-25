@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 // Shape frame functions
-void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count) {
+void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, float start_scale) {
     frame->point_count = point_count;
     frame->frame_points = (PointMass *)malloc(sizeof(PointMass) * point_count);
     frame->original_positions = (GPoint *)malloc(sizeof(GPoint) * point_count);
@@ -21,8 +21,8 @@ void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count) {
     center.x /= point_count;
     center.y /= point_count;
     
-    // Initialize frame at 2x scale
-    frame->current_scale = 2.0f;
+    // Initialize frame at start scale
+    frame->current_scale = start_scale;
     for (int i = 0; i < point_count; i++) {
         // Scale from center: position = center + (original - center) * scale
         int dx = positions[i].x - center.x;
@@ -130,7 +130,7 @@ void shape_frame_translate(ShapeFrame *frame, GPoint offset) {
     }
 }
 
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping) {
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, float start_scale, float target_scale, float scale_speed) {
     body->point_count = point_count;
     
     // Allocate memory for body points
@@ -141,9 +141,14 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
         point_mass_init(&body->points[i], positions[i], mass);
     }
 
+    // Store scale configuration
+    body->start_scale = start_scale;
+    body->target_scale = target_scale;
+    body->scale_speed = scale_speed;
+
     // Create shape frame
     body->frame = (ShapeFrame *)malloc(sizeof(ShapeFrame));
-    shape_frame_init(body->frame, positions, point_count);
+    shape_frame_init(body->frame, positions, point_count, start_scale);
 
     // Only frame-to-body springs (no connections between body points)
     body->spring_count = point_count;

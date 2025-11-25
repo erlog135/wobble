@@ -43,13 +43,18 @@ struct SoftBody {
     Spring *springs;
     int spring_count;
     ShapeFrame *frame;        // Reference shape frame that drives the body
+
+    // Scale animation configuration
+    float start_scale;        // Initial scale factor (e.g., 0.5f for half size)
+    float target_scale;       // Target scale factor (e.g., 1.0f for normal size)
+    float scale_speed;        // Scale change per frame (e.g., 0.1f)
 };
 
 // Physics constants
-#define DAMPING_DEFAULT 0.95f
-#define FRAME_SPRING_STIFFNESS_DEFAULT 200  // Base stiffness for frame-to-body springs
+#define DAMPING_DEFAULT 0.90f
+#define FRAME_SPRING_STIFFNESS_DEFAULT 600  // Base stiffness for frame-to-body springs
 #define FRAME_SPRING_STIFFNESS_RANDOM_FACTOR 0.3f  // Randomization factor: ±30% variation (0.7x to 1.3x)
-#define FRAME_SPRING_DAMPING_DEFAULT 0.95f  // Damping for frame-to-body springs
+#define FRAME_SPRING_DAMPING_DEFAULT 0.90f  // Damping for frame-to-body springs
 #define FRAME_MASS 10000  // Very high mass for frame points (effectively fixed)
 
 // Integer square root function (replaces math.h sqrt)
@@ -90,7 +95,7 @@ void spring_init(Spring *spring, PointMass *p1, PointMass *p2, int rest_length, 
 void spring_apply_forces(Spring *spring);
 
 // Shape frame functions
-void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count);
+void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, float start_scale);
 void shape_frame_destroy(ShapeFrame *frame);
 void shape_frame_set_position(ShapeFrame *frame, GPoint position);
 void shape_frame_set_rotation(ShapeFrame *frame, float angle_radians, GPoint center);
@@ -98,7 +103,7 @@ void shape_frame_set_scale(ShapeFrame *frame, float scale);
 void shape_frame_translate(ShapeFrame *frame, GPoint offset);
 
 // Soft body functions
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping);
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, float start_scale, float target_scale, float scale_speed);
 void soft_body_destroy(SoftBody *body);
 void soft_body_apply_spring_forces(SoftBody *body);
 void soft_body_apply_damping(SoftBody *body, float damping);

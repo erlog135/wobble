@@ -96,7 +96,7 @@ static void prv_add_random_shape(void) {
     
     // Initialize soft body
     SoftBody *body = &s_soft_bodies[s_soft_body_count];
-    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT);
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 1.5f, 1.0f, 0.1f);
     s_soft_body_count++;
     
     free(positions);
@@ -112,12 +112,12 @@ static void prv_physics_timer_callback(void *data) {
     for (int i = 0; i < s_soft_body_count; i++) {
         SoftBody *body = &s_soft_bodies[i];
 
-        // Animate frame scale shrinking from 2.0 to 1.0
-        if (body->frame && body->frame->current_scale > 1.0f) {
-            // Rapidly shrink: reduce by 0.1 per frame (~0.1 per 16ms = ~6.25 per second)
-            float new_scale = body->frame->current_scale - 0.1f;
-            if (new_scale < 1.0f) {
-                new_scale = 1.0f;
+        // Animate frame scale from start_scale to target_scale
+        if (body->frame && body->frame->current_scale < body->target_scale) {
+            // Grow towards target scale using configurable speed
+            float new_scale = body->frame->current_scale + body->scale_speed;
+            if (new_scale > body->target_scale) {
+                new_scale = body->target_scale;
             }
             shape_frame_set_scale(body->frame, new_scale);
         }
