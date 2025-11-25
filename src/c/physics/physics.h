@@ -5,6 +5,10 @@
 // Debug drawing controls
 #define DEBUG_DRAW_ELEMENTS 0  // Set to 1 to show frame box and point mass circles, 0 to hide
 
+// Physics optimization constants
+#define POINT_SLEEP_VELOCITY_THRESHOLD 0.5f  // Velocity threshold below which points go to sleep
+#define POINT_SLEEP_DISTANCE_THRESHOLD 2.0f  // Distance threshold for snapping to frame when sleeping
+
 // Forward declarations
 typedef struct PointMass PointMass;
 typedef struct Spring Spring;
@@ -55,6 +59,11 @@ struct SoftBody {
     // Drawing optimization - cached GPath and points array
     GPath *draw_path;         // Cached GPath for drawing the body
     GPoint *draw_points;      // Cached GPoint array for the path
+
+    // Performance optimization - active point tracking
+    char *point_active;       // Array tracking which points are actively being updated
+    int active_point_count;   // Number of currently active points
+    char is_sleeping;         // Whether the entire softbody is sleeping (all points inactive)
 };
 
 // Physics constants
@@ -115,6 +124,8 @@ void soft_body_destroy(SoftBody *body);
 void soft_body_apply_spring_forces(SoftBody *body);
 void soft_body_apply_damping(SoftBody *body, float damping);
 void soft_body_update(SoftBody *body, float dt);
+void soft_body_wake_all_points(SoftBody *body);
+void soft_body_wake(SoftBody *body);
 void soft_body_update_draw_path(SoftBody *body);
 void soft_body_draw(GContext *ctx, SoftBody *body);
 void soft_body_draw_frame(GContext *ctx, SoftBody *body);

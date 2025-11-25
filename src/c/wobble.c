@@ -96,7 +96,7 @@ static void prv_add_random_shape(void) {
     
     // Initialize soft body
     SoftBody *body = &s_soft_bodies[s_soft_body_count];
-    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 1.5f, 1.0f, 0.1f);
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 2.0f, 1.0f, 0.1f);
     s_soft_body_count++;
     
     free(positions);
@@ -114,6 +114,11 @@ static void prv_physics_timer_callback(void *data) {
 
         // Animate frame scale from start_scale to target_scale
         if (body->frame && body->frame->current_scale != body->target_scale) {
+            // Wake the softbody if it's sleeping (scaling will disturb it)
+            if (body->is_sleeping) {
+                soft_body_wake(body);
+            }
+
             // Move towards target scale using configurable speed
             float scale_diff = body->target_scale - body->frame->current_scale;
             float scale_step = (scale_diff > 0 ? body->scale_speed : -body->scale_speed);
@@ -128,8 +133,10 @@ static void prv_physics_timer_callback(void *data) {
             shape_frame_set_scale(body->frame, new_scale);
         }
 
-        // Update physics (includes spring forces and position updates)
-        soft_body_update(body, 0.016f); // ~16ms timestep
+        // Update physics only for non-sleeping softbodies
+        if (!body->is_sleeping) {
+            soft_body_update(body, 0.016f); // ~16ms timestep
+        }
     }
 
     // Mark layer dirty to trigger redraw

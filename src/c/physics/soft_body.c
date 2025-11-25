@@ -53,7 +53,7 @@ void shape_frame_destroy(ShapeFrame *frame) {
 
 void shape_frame_set_position(ShapeFrame *frame, GPoint position) {
     if (frame->point_count == 0) return;
-    
+
     // Calculate center of frame
     GPoint center = GPoint(0, 0);
     for (int i = 0; i < frame->point_count; i++) {
@@ -62,10 +62,19 @@ void shape_frame_set_position(ShapeFrame *frame, GPoint position) {
     }
     center.x /= frame->point_count;
     center.y /= frame->point_count;
-    
+
+    // Check if this is a significant movement (more than sleep threshold)
+    int dx = position.x - center.x;
+    int dy = position.y - center.y;
+    int distance_squared = dx * dx + dy * dy;
+
     // Translate all points by the offset
     GPoint offset = GPoint(position.x - center.x, position.y - center.y);
     shape_frame_translate(frame, offset);
+
+    // Note: We don't wake points here because this function operates on ShapeFrame only.
+    // The caller (usually in wobble.c) should call soft_body_wake_all_points on the SoftBody
+    // if they want to wake sleeping points when the frame moves.
 }
 
 void shape_frame_set_rotation(ShapeFrame *frame, float angle_radians, GPoint center) {
@@ -174,6 +183,14 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
     // Initialize drawing optimization - create cached GPath and points array
     body->draw_points = (GPoint *)malloc(sizeof(GPoint) * point_count);
     body->draw_path = NULL;  // Will be created on first draw or update
+
+    // Initialize performance optimization - all points start active
+    body->point_active = (char *)malloc(sizeof(char) * point_count);
+    body->active_point_count = point_count;
+    body->is_sleeping = 0;  // Softbody starts awake
+    for (int i = 0; i < point_count; i++) {
+        body->point_active[i] = 1;  // All points active initially
+    }
 }
 
 void soft_body_destroy(SoftBody *body) {
@@ -184,6 +201,10 @@ void soft_body_destroy(SoftBody *body) {
     if (body->draw_points) {
         free(body->draw_points);
         body->draw_points = NULL;
+    }
+    if (body->point_active) {
+        free(body->point_active);
+        body->point_active = NULL;
     }
     if (body->frame) {
         shape_frame_destroy(body->frame);
@@ -204,7 +225,26 @@ void soft_body_destroy(SoftBody *body) {
 
 void soft_body_apply_spring_forces(SoftBody *body) {
     for (int i = 0; i < body->spring_count; i++) {
-        spring_apply_forces(&body->springs[i]);
+        // Only apply spring forces to active points
+        if (body->point_active[i]) {
+            spring_apply_forces(&body->springs[i]);
+        }
+    }
+}
+
+void soft_body_wake_all_points(SoftBody *body) {
+    for (int i = 0; i < body->point_count; i++) {
+        if (!body->point_active[i]) {
+            body->point_active[i] = 1;
+            body->active_point_count++;
+        }
+    }
+}
+
+void soft_body_wake(SoftBody *body) {
+    if (body->is_sleeping) {
+        soft_body_wake_all_points(body);
+        body->is_sleeping = 0;
     }
 }
 
@@ -221,22 +261,59 @@ void soft_body_update(SoftBody *body, float dt) {
     for (int i = 0; i < body->point_count; i++) {
         point_mass_reset_force(&body->points[i]);
     }
-    
+
     // Reset forces on frame points (they shouldn't move from physics, but springs apply forces)
     if (body->frame) {
         for (int i = 0; i < body->frame->point_count; i++) {
             point_mass_reset_force(&body->frame->frame_points[i]);
         }
     }
-    
+
     // Apply spring forces (this will apply forces to both body and frame points)
     soft_body_apply_spring_forces(body);
-    
-    // Update only body point masses (frame points are controlled directly, not by physics)
+
+    // Update only active body point masses and check for sleeping points
     for (int i = 0; i < body->point_count; i++) {
-        point_mass_update(&body->points[i], DAMPING_DEFAULT, dt);
+        if (body->point_active[i]) {
+            point_mass_update(&body->points[i], DAMPING_DEFAULT, dt);
+
+            // Check if point should go to sleep
+            float velocity_magnitude = body->points[i].velocity.x * body->points[i].velocity.x +
+                                     body->points[i].velocity.y * body->points[i].velocity.y;
+
+            if (velocity_magnitude < POINT_SLEEP_VELOCITY_THRESHOLD * POINT_SLEEP_VELOCITY_THRESHOLD) {
+                // Point is slow enough, snap to frame position and deactivate
+                body->points[i].position = body->frame->frame_points[i].position;
+                body->points[i].velocity = GPoint(0, 0);  // Stop movement
+                body->point_active[i] = 0;
+                body->active_point_count--;
+
+                // Check if softbody should go to sleep
+                if (body->active_point_count == 0 && !body->is_sleeping) {
+                    body->is_sleeping = 1;
+                }
+            }
+        } else {
+            // Check if inactive point should wake up (if frame moved significantly)
+            if (body->frame) {
+                int dx = body->points[i].position.x - body->frame->frame_points[i].position.x;
+                int dy = body->points[i].position.y - body->frame->frame_points[i].position.y;
+                int distance_squared = dx * dx + dy * dy;
+
+                if (distance_squared > POINT_SLEEP_DISTANCE_THRESHOLD * POINT_SLEEP_DISTANCE_THRESHOLD) {
+                    // Frame moved too far, reactivate point
+                    body->point_active[i] = 1;
+                    body->active_point_count++;
+
+                    // Wake the softbody if it was sleeping
+                    if (body->is_sleeping) {
+                        body->is_sleeping = 0;
+                    }
+                }
+            }
+        }
     }
-    
+
     // Frame points don't get updated - they maintain their positions unless moved directly
 }
 
