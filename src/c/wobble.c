@@ -112,15 +112,19 @@ static void prv_physics_timer_callback(void *data) {
     for (int i = 0; i < s_soft_body_count; i++) {
         SoftBody *body = &s_soft_bodies[i];
 
-        // Update physics (includes gravity, spring forces, and position updates)
-        soft_body_update(body, GRAVITY_DEFAULT, 0.016f); // ~16ms timestep
+        // Animate frame scale shrinking from 2.0 to 1.0
+        if (body->frame && body->frame->current_scale > 1.0f) {
+            // Rapidly shrink: reduce by 0.1 per frame (~0.1 per 16ms = ~6.25 per second)
+            float new_scale = body->frame->current_scale - 0.1f;
+            if (new_scale < 1.0f) {
+                new_scale = 1.0f;
+            }
+            shape_frame_set_scale(body->frame, new_scale);
+        }
 
-        // Check boundary collisions
-        collision_check_bounds(body, s_bounds);
+        // Update physics (includes spring forces and position updates)
+        soft_body_update(body, 0.016f); // ~16ms timestep
     }
-
-    // Check collisions between all soft bodies
-    collision_check_all_bodies(s_soft_bodies, s_soft_body_count);
 
     // Mark layer dirty to trigger redraw
     layer_mark_dirty(s_canvas_layer);
@@ -136,21 +140,11 @@ static void prv_canvas_update_proc(Layer *layer, GContext *ctx) {
     graphics_context_set_fill_color(ctx, GColorJazzberryJam);
     graphics_fill_rect(ctx, s_bounds, 0, GCornerNone);
 
-    // Draw all soft bodies with collision visualization
+    // Draw all soft bodies
     for (int i = 0; i < s_soft_body_count; i++) {
-        // Create array of other bodies for collision checking
-        SoftBody *other_bodies[MAX_SOFT_BODIES - 1];
-        int other_count = 0;
-
-        // Collect all bodies except the current one
-        for (int j = 0; j < s_soft_body_count; j++) {
-            if (j != i) {
-                other_bodies[other_count++] = &s_soft_bodies[j];
-            }
-        }
-
-        // Draw with collision checking
-        soft_body_draw_with_collisions(ctx, &s_soft_bodies[i], other_bodies, other_count);
+        soft_body_draw(ctx, &s_soft_bodies[i]);
+        // Draw frame outline on top
+        soft_body_draw_frame(ctx, &s_soft_bodies[i]);
     }
 }
 
