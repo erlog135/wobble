@@ -1,4 +1,5 @@
 #include <pebble.h>
+#include <time.h>
 #include "physics/physics.h"
 #include "physics/numerals.h"
 #include "physics/objects.h"
@@ -15,6 +16,8 @@ static int s_soft_body_count = 0;
 static AppTimer *s_physics_timer = NULL;
 static bool s_physics_running = false;
 static GRect s_bounds;
+static int s_display_hour = 0;
+static int s_display_minute = 0;
 
 typedef struct {
     const GPoint *points;
@@ -210,8 +213,9 @@ static void prv_add_shape_timer_callback(void *data) {
     free(quad_data);
 }
 
-static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Clear all bodies and their layers
+// Update the 4 numerals to display the given time (HH:MM format)
+static void prv_update_time_display(int hour, int minute) {
+    // Clear all existing bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
         if (s_body_layers[i]) {
@@ -222,36 +226,58 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *contex
     }
     s_soft_body_count = 0;
     
-    // Calculate quadrant centers
+    // Extract digits: HH:MM -> hour_tens, hour_units, minute_tens, minute_units
+    int hour_tens = hour / 10;
+    int hour_units = hour % 10;
+    int minute_tens = minute / 10;
+    int minute_units = minute % 10;
+    
+    // Calculate quadrant positions for 4 numerals
     int quad_center_x = s_bounds.size.w / 4;
     int quad_center_y = s_bounds.size.h / 4;
     int quad_width = s_bounds.size.w / 2;
     int quad_height = s_bounds.size.h / 2;
     
-    // Schedule 4 random shapes to appear with delays
-    // Top-left quadrant (immediate)
-    QuadrantData *quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    // Add 4 numerals: hour_tens (top-left), hour_units (top-right),
+    //                 minute_tens (bottom-left), minute_units (bottom-right)
+    QuadrantData *quad_data;
+    
+    // Hour tens (top-left)
+    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
+    quad_data->shape_idx = hour_tens;
     quad_data->position = GPoint(quad_center_x, quad_center_y);
     app_timer_register(0, prv_add_shape_timer_callback, quad_data);
     
-    // Top-right quadrant (after delay)
+    // Hour units (top-right)
     quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->shape_idx = hour_units;
     quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y);
     app_timer_register(SHAPE_APPEAR_DELAY_MS, prv_add_shape_timer_callback, quad_data);
     
-    // Bottom-left quadrant (after 2x delay)
+    // Minute tens (bottom-left)
     quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->shape_idx = minute_tens;
     quad_data->position = GPoint(quad_center_x, quad_center_y + quad_height);
     app_timer_register(SHAPE_APPEAR_DELAY_MS * 2, prv_add_shape_timer_callback, quad_data);
     
-    // Bottom-right quadrant (after 3x delay)
+    // Minute units (bottom-right)
     quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->shape_idx = minute_units;
     quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
     app_timer_register(SHAPE_APPEAR_DELAY_MS * 3, prv_add_shape_timer_callback, quad_data);
+}
+
+static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    
+    // Update displayed time
+    s_display_hour = tick_time->tm_hour;
+    s_display_minute = tick_time->tm_min;
+    
+    // Update the 4 numerals to show current time
+    prv_update_time_display(s_display_hour, s_display_minute);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -268,16 +294,22 @@ static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Remove last body and its layer
-    if (s_soft_body_count > 0) {
-        s_soft_body_count--;
-        soft_body_destroy(&s_soft_bodies[s_soft_body_count]);
-        if (s_body_layers[s_soft_body_count]) {
-            layer_remove_from_parent(s_body_layers[s_soft_body_count]);
-            layer_destroy(s_body_layers[s_soft_body_count]);
-            s_body_layers[s_soft_body_count] = NULL;
-        }
+    // Increase minutes by 1
+    s_display_minute++;
+    
+    // Handle minute overflow (wrap to next hour)
+    if (s_display_minute >= 60) {
+        s_display_minute = 0;
+        s_display_hour++;
     }
+    
+    // Handle hour overflow (wrap to 0)
+    if (s_display_hour >= 24) {
+        s_display_hour = 0;
+    }
+    
+    // Update the display with new time
+    prv_update_time_display(s_display_hour, s_display_minute);
 }
 
 static void prv_click_config_provider(void *context) {
