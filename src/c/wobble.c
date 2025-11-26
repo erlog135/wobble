@@ -1,13 +1,15 @@
 #include <pebble.h>
 #include "physics/physics.h"
 #include "physics/numerals.h"
+#include "physics/objects.h"
 
 #define MAX_SOFT_BODIES 10
 #define PHYSICS_TIMER_MS 33  // ~30 FPS
 #define SHAPE_APPEAR_DELAY_MS 50  // Delay between shapes appearing (milliseconds)
 
 static Window *s_window;
-static Layer *s_canvas_layer;
+static Layer *s_background_layer;
+static Layer *s_body_layers[MAX_SOFT_BODIES];
 static SoftBody s_soft_bodies[MAX_SOFT_BODIES];
 static int s_soft_body_count = 0;
 static AppTimer *s_physics_timer = NULL;
@@ -34,6 +36,21 @@ static const ShapeDef s_shapes[] = {
 };
 #define SHAPE_COUNT (sizeof(s_shapes) / sizeof(s_shapes[0]))
 
+// All object shapes from objects.h
+static const ShapeDef s_object_shapes[] = {
+    {shape_zero_points, SHAPE_ZERO_POINT_COUNT},
+    {shape_one_points, SHAPE_ONE_POINT_COUNT},
+    {shape_two_points, SHAPE_TWO_POINT_COUNT},
+    {shape_three_points, SHAPE_THREE_POINT_COUNT},
+    {shape_four_points, SHAPE_FOUR_POINT_COUNT},
+    {shape_five_points, SHAPE_FIVE_POINT_COUNT},
+    {shape_six_points, SHAPE_SIX_POINT_COUNT},
+    {shape_seven_points, SHAPE_SEVEN_POINT_COUNT},
+    {shape_eight_points, SHAPE_EIGHT_POINT_COUNT},
+    {shape_nine_points, SHAPE_NINE_POINT_COUNT}
+};
+#define OBJECT_SHAPE_COUNT (sizeof(s_object_shapes) / sizeof(s_object_shapes[0]))
+
 // Shared scaling options for all shapes
 #define SHAPE_START_SCALE 0.4f
 #define SHAPE_TARGET_SCALE 0.8f
@@ -44,6 +61,31 @@ typedef struct {
     int shape_idx;
     GPoint position;
 } QuadrantData;
+
+// Per-body layer update proc - draws a single body
+static void prv_body_layer_update_proc(Layer *layer, GContext *ctx) {
+    // Find body index by searching through body layers array
+    int body_idx = -1;
+    for (int i = 0; i < s_soft_body_count; i++) {
+        if (s_body_layers[i] == layer) {
+            body_idx = i;
+            break;
+        }
+    }
+    
+    if (body_idx < 0 || body_idx >= s_soft_body_count) {
+        return;
+    }
+    
+    SoftBody *body = &s_soft_bodies[body_idx];
+    
+    // Draw the body (layer is transparent by default)
+    soft_body_draw(ctx, body);
+#if DEBUG_DRAW_ELEMENTS
+    // Draw frame outline on top
+    soft_body_draw_frame(ctx, body);
+#endif
+}
 
 static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) {
     if (s_soft_body_count >= MAX_SOFT_BODIES) {
@@ -81,30 +123,24 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
     }
     
     // Initialize soft body with shared scaling options
-    SoftBody *body = &s_soft_bodies[s_soft_body_count];
+    int body_idx = s_soft_body_count;
+    SoftBody *body = &s_soft_bodies[body_idx];
     soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
                    SHAPE_START_SCALE, SHAPE_TARGET_SCALE, SHAPE_SCALE_SPEED);
+    
+    // Create a layer for this body
+    Layer *window_layer = window_get_root_layer(s_window);
+    Layer *body_layer = layer_create(s_bounds);
+    layer_set_update_proc(body_layer, prv_body_layer_update_proc);
+    layer_add_child(window_layer, body_layer);
+    s_body_layers[body_idx] = body_layer;
+    
     s_soft_body_count++;
     
     free(positions);
     
     // Mark layer dirty to show the new shape
-    layer_mark_dirty(s_canvas_layer);
-}
-
-static void prv_add_random_shape(void) {
-    // Pick random shape
-    int shape_idx = rand() % SHAPE_COUNT;
-    const ShapeDef *shape = &s_shapes[shape_idx];
-    
-    // Random position (keep shape within bounds)
-    int max_x = s_bounds.size.w - 50;
-    int max_y = s_bounds.size.h / 2 - 50;
-    int offset_x = (rand() % (max_x > 0 ? max_x : s_bounds.size.w)) + 10;
-    int offset_y = (rand() % (max_y > 0 ? max_y : s_bounds.size.h)) + 10;
-    
-    GPoint random_pos = GPoint(offset_x, offset_y);
-    prv_add_shape_at_position(shape, random_pos);
+    layer_mark_dirty(body_layer);
 }
 
 static void prv_physics_timer_callback(void *data) {
@@ -113,6 +149,7 @@ static void prv_physics_timer_callback(void *data) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Physics timer callback");
     for (int i = 0; i < s_soft_body_count; i++) {
         SoftBody *body = &s_soft_bodies[i];
+        bool was_sleeping = body->is_sleeping;
 
         // Animate frame scale from start_scale to target_scale
         if (body->frame && body->frame->current_scale != body->target_scale) {
@@ -139,10 +176,16 @@ static void prv_physics_timer_callback(void *data) {
         if (!body->is_sleeping) {
             soft_body_update(body, 0.016f); // ~16ms timestep
         }
+        
+        // Mark layer dirty if body is not sleeping, or if it just went to sleep
+        // (to ensure final position is drawn when transitioning to sleep)
+        bool just_went_to_sleep = was_sleeping == false && body->is_sleeping == true;
+        if (!body->is_sleeping || just_went_to_sleep) {
+            if (s_body_layers[i]) {
+                layer_mark_dirty(s_body_layers[i]);
+            }
+        }
     }
-
-    // Mark layer dirty to trigger redraw
-    layer_mark_dirty(s_canvas_layer);
 
     // Schedule next physics update (repeating timer pattern)
     if (s_physics_running) {
@@ -150,19 +193,10 @@ static void prv_physics_timer_callback(void *data) {
     }
 }
 
-static void prv_canvas_update_proc(Layer *layer, GContext *ctx) {
-    // Clear background
-    graphics_context_set_fill_color(ctx, GColorJazzberryJam);
+// Background layer update proc - just draws the background
+static void prv_background_update_proc(Layer *layer, GContext *ctx) {
+    graphics_context_set_fill_color(ctx, GColorWhite);
     graphics_fill_rect(ctx, s_bounds, 0, GCornerNone);
-
-    // Draw all soft bodies
-    for (int i = 0; i < s_soft_body_count; i++) {
-        soft_body_draw(ctx, &s_soft_bodies[i]);
-#if DEBUG_DRAW_ELEMENTS
-        // Draw frame outline on top
-        soft_body_draw_frame(ctx, &s_soft_bodies[i]);
-#endif
-    }
 }
 
 // Timer callback to add a shape at a specific quadrant
@@ -177,9 +211,14 @@ static void prv_add_shape_timer_callback(void *data) {
 }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Clear all bodies
+    // Clear all bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
+        if (s_body_layers[i]) {
+            layer_remove_from_parent(s_body_layers[i]);
+            layer_destroy(s_body_layers[i]);
+            s_body_layers[i] = NULL;
+        }
     }
     s_soft_body_count = 0;
     
@@ -213,25 +252,31 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *contex
     quad_data->shape_idx = rand() % SHAPE_COUNT;
     quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
     app_timer_register(SHAPE_APPEAR_DELAY_MS * 3, prv_add_shape_timer_callback, quad_data);
-    
-    layer_mark_dirty(s_canvas_layer);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Clear all bodies
+    // Clear all bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
+        if (s_body_layers[i]) {
+            layer_remove_from_parent(s_body_layers[i]);
+            layer_destroy(s_body_layers[i]);
+            s_body_layers[i] = NULL;
+        }
     }
     s_soft_body_count = 0;
-    layer_mark_dirty(s_canvas_layer);
 }
 
 static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Remove last body
+    // Remove last body and its layer
     if (s_soft_body_count > 0) {
         s_soft_body_count--;
         soft_body_destroy(&s_soft_bodies[s_soft_body_count]);
-        layer_mark_dirty(s_canvas_layer);
+        if (s_body_layers[s_soft_body_count]) {
+            layer_remove_from_parent(s_body_layers[s_soft_body_count]);
+            layer_destroy(s_body_layers[s_soft_body_count]);
+            s_body_layers[s_soft_body_count] = NULL;
+        }
     }
 }
 
@@ -245,16 +290,21 @@ static void prv_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     s_bounds = layer_get_bounds(window_layer);
     
-    // Create canvas layer for physics rendering
-    s_canvas_layer = layer_create(s_bounds);
-    layer_set_update_proc(s_canvas_layer, prv_canvas_update_proc);
-    layer_add_child(window_layer, s_canvas_layer);
+    // Initialize body layers array
+    for (int i = 0; i < MAX_SOFT_BODIES; i++) {
+        s_body_layers[i] = NULL;
+    }
+    
+    // Create background layer
+    s_background_layer = layer_create(s_bounds);
+    layer_set_update_proc(s_background_layer, prv_background_update_proc);
+    layer_add_child(window_layer, s_background_layer);
     
     // Initialize random seed (use a simple seed)
     //srand(42);
     
-    // Mark layer dirty for initial draw
-    layer_mark_dirty(s_canvas_layer);
+    // Mark background layer dirty for initial draw
+    layer_mark_dirty(s_background_layer);
     
     // Start physics timer (repeating timer pattern)
     s_physics_running = true;
@@ -269,12 +319,21 @@ static void prv_window_unload(Window *window) {
         s_physics_timer = NULL;
     }
     
-    // Clean up all soft bodies
+    // Clean up all soft bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
+        if (s_body_layers[i]) {
+            layer_remove_from_parent(s_body_layers[i]);
+            layer_destroy(s_body_layers[i]);
+            s_body_layers[i] = NULL;
+        }
     }
     
-    layer_destroy(s_canvas_layer);
+    // Clean up background layer
+    if (s_background_layer) {
+        layer_destroy(s_background_layer);
+        s_background_layer = NULL;
+    }
 }
 
 static void prv_init(void) {
