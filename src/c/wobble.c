@@ -1,8 +1,10 @@
 #include <pebble.h>
 #include "physics/physics.h"
+#include "physics/numerals.h"
 
 #define MAX_SOFT_BODIES 10
 #define PHYSICS_TIMER_MS 33  // ~30 FPS
+#define SHAPE_APPEAR_DELAY_MS 50  // Delay between shapes appearing (milliseconds)
 
 static Window *s_window;
 static Layer *s_canvas_layer;
@@ -12,78 +14,62 @@ static AppTimer *s_physics_timer = NULL;
 static bool s_physics_running = false;
 static GRect s_bounds;
 
-// Shape definitions (copied from objects.h since they're static)
-static const GPoint square_points[] = {
-    {0, 0}, {50, 0}, {50, 50}, {0, 50}
-};
-static const GPoint triangle_points[] = {
-    {25, 0}, {0, 50}, {50, 50}
-};
-static const GPoint hexagon_points[] = {
-    {25, 0}, {50, 12}, {50, 37}, {25, 50}, {0, 37}, {0, 12}
-};
-// 80px tall number '2' as an outline polygon (clockwise)
-// Coordinates chosen to look like a '2' digit, top left at (10,10), height ~80px.
-static const GPoint blob_points[] = {
-    {15, 15},   // Top left curve
-    {55, 15},   // Top right
-    {65, 25},   // Curve right
-    {55, 45},   // Upper belly
-    {25, 60},   // Middle transition (curl down)
-    {15, 85},   // Bottom left knee
-    {25, 95},   // Bottom
-    {55, 95},   // Bottom right
-    {65, 85},   // Bottom right curve
-    {57, 80},   // Curl up into base
-    {35, 70},   // Inside base curve
-    {55, 55},   // Pinch middle
-    {65, 40},   // Top tip
-    {65, 25},   // Top right
-    {15, 15}    // Closing point (matches first for polygon)
-};
-
-// 5-pointed star shape with manually positioned points for optimal physics
-static const GPoint star_points[] = {
-    {25, 0},    // Top point
-    {32, 18},   // Top right inner
-    {50, 18},   // Right point
-    {37, 30},   // Bottom right inner
-    {40, 50},   // Bottom right point
-    {25, 38},   // Bottom inner
-    {10, 50},   // Bottom left point
-    {13, 30},   // Bottom left inner
-    {0, 18},    // Left point
-    {18, 18}    // Top left inner
-};
-
 typedef struct {
     const GPoint *points;
     int count;
 } ShapeDef;
 
+// All numeral shapes from numerals.h
 static const ShapeDef s_shapes[] = {
-    {square_points, sizeof(square_points) / sizeof(square_points[0])},
-    {triangle_points, sizeof(triangle_points) / sizeof(triangle_points[0])},
-    {hexagon_points, sizeof(hexagon_points) / sizeof(hexagon_points[0])},
-    {blob_points, sizeof(blob_points) / sizeof(blob_points[0])},
-    {star_points, sizeof(star_points) / sizeof(star_points[0])}
+    {zero_points, ZERO_POINT_COUNT},
+    {one_points, ONE_POINT_COUNT},
+    {two_points, TWO_POINT_COUNT},
+    {three_points, THREE_POINT_COUNT},
+    {four_points, FOUR_POINT_COUNT},
+    {five_points, FIVE_POINT_COUNT},
+    {six_points, SIX_POINT_COUNT},
+    {seven_points, SEVEN_POINT_COUNT},
+    {eight_points, EIGHT_POINT_COUNT},
+    {nine_points, NINE_POINT_COUNT}
 };
 #define SHAPE_COUNT (sizeof(s_shapes) / sizeof(s_shapes[0]))
 
-static void prv_add_random_shape(void) {
+// Shared scaling options for all shapes
+#define SHAPE_START_SCALE 0.4f
+#define SHAPE_TARGET_SCALE 0.8f
+#define SHAPE_SCALE_SPEED 0.8f
+
+// Structure to pass quadrant information to timer callback
+typedef struct {
+    int shape_idx;
+    GPoint position;
+} QuadrantData;
+
+static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) {
     if (s_soft_body_count >= MAX_SOFT_BODIES) {
         return; // Max bodies reached
     }
     
-    // Pick random shape
-    int shape_idx = rand() % SHAPE_COUNT;
-    const ShapeDef *shape = &s_shapes[shape_idx];
+    // Calculate shape bounding box to center it properly
+    int min_x = shape->points[0].x;
+    int max_x = shape->points[0].x;
+    int min_y = shape->points[0].y;
+    int max_y = shape->points[0].y;
     
-    // Random position (keep shape within bounds)
-    int max_x = s_bounds.size.w - 50;
-    int max_y = s_bounds.size.h / 2 - 50;
-    int offset_x = (rand() % (max_x > 0 ? max_x : s_bounds.size.w)) + 10;
-    int offset_y = (rand() % (max_y > 0 ? max_y : s_bounds.size.h)) + 10;
+    for (int i = 1; i < shape->count; i++) {
+        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
+        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
+        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
+        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
+    }
+    
+    // Calculate shape center
+    int shape_center_x = (min_x + max_x) / 2;
+    int shape_center_y = (min_y + max_y) / 2;
+    
+    // Calculate offset to place shape center at desired position
+    int offset_x = center_pos.x - shape_center_x;
+    int offset_y = center_pos.y - shape_center_y;
     
     // Create GPoint array with offset
     GPoint *positions = (GPoint *)malloc(sizeof(GPoint) * shape->count);
@@ -94,15 +80,31 @@ static void prv_add_random_shape(void) {
         );
     }
     
-    // Initialize soft body
+    // Initialize soft body with shared scaling options
     SoftBody *body = &s_soft_bodies[s_soft_body_count];
-    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 2.0f, 1.0f, 0.1f);
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
+                   SHAPE_START_SCALE, SHAPE_TARGET_SCALE, SHAPE_SCALE_SPEED);
     s_soft_body_count++;
     
     free(positions);
     
     // Mark layer dirty to show the new shape
     layer_mark_dirty(s_canvas_layer);
+}
+
+static void prv_add_random_shape(void) {
+    // Pick random shape
+    int shape_idx = rand() % SHAPE_COUNT;
+    const ShapeDef *shape = &s_shapes[shape_idx];
+    
+    // Random position (keep shape within bounds)
+    int max_x = s_bounds.size.w - 50;
+    int max_y = s_bounds.size.h / 2 - 50;
+    int offset_x = (rand() % (max_x > 0 ? max_x : s_bounds.size.w)) + 10;
+    int offset_y = (rand() % (max_y > 0 ? max_y : s_bounds.size.h)) + 10;
+    
+    GPoint random_pos = GPoint(offset_x, offset_y);
+    prv_add_shape_at_position(shape, random_pos);
 }
 
 static void prv_physics_timer_callback(void *data) {
@@ -163,8 +165,56 @@ static void prv_canvas_update_proc(Layer *layer, GContext *ctx) {
     }
 }
 
+// Timer callback to add a shape at a specific quadrant
+static void prv_add_shape_timer_callback(void *data) {
+    QuadrantData *quad_data = (QuadrantData *)data;
+    
+    // Add the shape at the specified position
+    prv_add_shape_at_position(&s_shapes[quad_data->shape_idx], quad_data->position);
+    
+    // Free the allocated memory
+    free(quad_data);
+}
+
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    prv_add_random_shape();
+    // Clear all bodies
+    for (int i = 0; i < s_soft_body_count; i++) {
+        soft_body_destroy(&s_soft_bodies[i]);
+    }
+    s_soft_body_count = 0;
+    
+    // Calculate quadrant centers
+    int quad_center_x = s_bounds.size.w / 4;
+    int quad_center_y = s_bounds.size.h / 4;
+    int quad_width = s_bounds.size.w / 2;
+    int quad_height = s_bounds.size.h / 2;
+    
+    // Schedule 4 random shapes to appear with delays
+    // Top-left quadrant (immediate)
+    QuadrantData *quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
+    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->position = GPoint(quad_center_x, quad_center_y);
+    app_timer_register(0, prv_add_shape_timer_callback, quad_data);
+    
+    // Top-right quadrant (after delay)
+    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
+    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y);
+    app_timer_register(SHAPE_APPEAR_DELAY_MS, prv_add_shape_timer_callback, quad_data);
+    
+    // Bottom-left quadrant (after 2x delay)
+    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
+    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->position = GPoint(quad_center_x, quad_center_y + quad_height);
+    app_timer_register(SHAPE_APPEAR_DELAY_MS * 2, prv_add_shape_timer_callback, quad_data);
+    
+    // Bottom-right quadrant (after 3x delay)
+    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
+    quad_data->shape_idx = rand() % SHAPE_COUNT;
+    quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
+    app_timer_register(SHAPE_APPEAR_DELAY_MS * 3, prv_add_shape_timer_callback, quad_data);
+    
+    layer_mark_dirty(s_canvas_layer);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {

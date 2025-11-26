@@ -6,8 +6,8 @@
 #define DEBUG_DRAW_ELEMENTS 0  // Set to 1 to show frame box and point mass circles, 0 to hide
 
 // Physics optimization constants
-#define POINT_SLEEP_VELOCITY_THRESHOLD 0.5f  // Velocity threshold below which points go to sleep
-#define POINT_SLEEP_DISTANCE_THRESHOLD 2.0f  // Distance threshold for snapping to frame when sleeping
+#define POINT_SLEEP_VELOCITY_THRESHOLD 4.0f  // Velocity threshold below which points go to sleep
+#define POINT_SLEEP_DISTANCE_THRESHOLD 1.0f  // Distance threshold for snapping to frame when sleeping
 
 // Forward declarations
 typedef struct PointMass PointMass;
@@ -64,13 +64,15 @@ struct SoftBody {
     char *point_active;       // Array tracking which points are actively being updated
     int active_point_count;   // Number of currently active points
     char is_sleeping;         // Whether the entire softbody is sleeping (all points inactive)
+    GPoint *prev_positions_1; // Array storing positions from 1 update ago (for sleep detection)
+    GPoint *prev_positions_2; // Array storing positions from 2 updates ago (for sleep detection)
 };
 
 // Physics constants
-#define DAMPING_DEFAULT 0.90f
-#define FRAME_SPRING_STIFFNESS_DEFAULT 600  // Base stiffness for frame-to-body springs
+#define DAMPING_DEFAULT 0.80f
+#define FRAME_SPRING_STIFFNESS_DEFAULT 1200  // Base stiffness for frame-to-body springs
 #define FRAME_SPRING_STIFFNESS_RANDOM_FACTOR 0.3f  // Randomization factor: ±30% variation (0.7x to 1.3x)
-#define FRAME_SPRING_DAMPING_DEFAULT 0.90f  // Damping for frame-to-body springs
+#define FRAME_SPRING_DAMPING_DEFAULT 0.80f  // Damping for frame-to-body springs
 #define FRAME_MASS 10000  // Very high mass for frame points (effectively fixed)
 
 // Integer square root function (replaces math.h sqrt)

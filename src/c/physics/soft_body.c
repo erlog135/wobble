@@ -145,19 +145,20 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
     // Allocate memory for body points
     body->points = (PointMass *)malloc(sizeof(PointMass) * point_count);
 
-    // Initialize body point masses (start at same positions as frame)
-    for (int i = 0; i < point_count; i++) {
-        point_mass_init(&body->points[i], positions[i], mass);
-    }
-
     // Store scale configuration
     body->start_scale = start_scale;
     body->target_scale = target_scale;
     body->scale_speed = scale_speed;
 
-    // Create shape frame
+    // Create shape frame first (needed to get scaled positions)
     body->frame = (ShapeFrame *)malloc(sizeof(ShapeFrame));
     shape_frame_init(body->frame, positions, point_count, start_scale);
+
+    // Initialize body point masses at the same scaled positions as frame points
+    // This ensures body and frame start at identical positions
+    for (int i = 0; i < point_count; i++) {
+        point_mass_init(&body->points[i], body->frame->frame_points[i].position, mass);
+    }
 
     // Only frame-to-body springs (no connections between body points)
     body->spring_count = point_count;
@@ -188,8 +189,13 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
     body->point_active = (char *)malloc(sizeof(char) * point_count);
     body->active_point_count = point_count;
     body->is_sleeping = 0;  // Softbody starts awake
+    body->prev_positions_1 = (GPoint *)malloc(sizeof(GPoint) * point_count);
+    body->prev_positions_2 = (GPoint *)malloc(sizeof(GPoint) * point_count);
     for (int i = 0; i < point_count; i++) {
         body->point_active[i] = 1;  // All points active initially
+        // Initialize previous positions to current positions
+        body->prev_positions_1[i] = body->points[i].position;
+        body->prev_positions_2[i] = body->points[i].position;
     }
 }
 
@@ -205,6 +211,14 @@ void soft_body_destroy(SoftBody *body) {
     if (body->point_active) {
         free(body->point_active);
         body->point_active = NULL;
+    }
+    if (body->prev_positions_1) {
+        free(body->prev_positions_1);
+        body->prev_positions_1 = NULL;
+    }
+    if (body->prev_positions_2) {
+        free(body->prev_positions_2);
+        body->prev_positions_2 = NULL;
     }
     if (body->frame) {
         shape_frame_destroy(body->frame);
@@ -237,6 +251,9 @@ void soft_body_wake_all_points(SoftBody *body) {
         if (!body->point_active[i]) {
             body->point_active[i] = 1;
             body->active_point_count++;
+            // Reset previous position tracking when waking up
+            body->prev_positions_1[i] = body->points[i].position;
+            body->prev_positions_2[i] = body->points[i].position;
         }
     }
 }
@@ -275,14 +292,21 @@ void soft_body_update(SoftBody *body, float dt) {
     // Update only active body point masses and check for sleeping points
     for (int i = 0; i < body->point_count; i++) {
         if (body->point_active[i]) {
+            // Store position before update
+            GPoint position_before = body->points[i].position;
+            
             point_mass_update(&body->points[i], DAMPING_DEFAULT, dt);
 
             // Check if point should go to sleep
-            float velocity_magnitude = body->points[i].velocity.x * body->points[i].velocity.x +
-                                     body->points[i].velocity.y * body->points[i].velocity.y;
-
-            if (velocity_magnitude < POINT_SLEEP_VELOCITY_THRESHOLD * POINT_SLEEP_VELOCITY_THRESHOLD) {
-                // Point is slow enough, snap to frame position and deactivate
+            // Point goes to sleep if current position and both previous positions are all the same
+            GPoint current_pos = body->points[i].position;
+            GPoint prev_pos_1 = body->prev_positions_1[i];
+            GPoint prev_pos_2 = body->prev_positions_2[i];
+            
+            // Check if all three positions are identical (current, 1 update ago, 2 updates ago)
+            if (current_pos.x == prev_pos_1.x && current_pos.y == prev_pos_1.y &&
+                prev_pos_1.x == prev_pos_2.x && prev_pos_1.y == prev_pos_2.y) {
+                // Position hasn't changed for 2 consecutive updates, put to sleep
                 body->points[i].position = body->frame->frame_points[i].position;
                 body->points[i].velocity = GPoint(0, 0);  // Stop movement
                 body->point_active[i] = 0;
@@ -292,6 +316,10 @@ void soft_body_update(SoftBody *body, float dt) {
                 if (body->active_point_count == 0 && !body->is_sleeping) {
                     body->is_sleeping = 1;
                 }
+            } else {
+                // Shift positions: prev_pos_2 = prev_pos_1, prev_pos_1 = position_before
+                body->prev_positions_2[i] = body->prev_positions_1[i];
+                body->prev_positions_1[i] = position_before;
             }
         } else {
             // Check if inactive point should wake up (if frame moved significantly)
@@ -304,6 +332,9 @@ void soft_body_update(SoftBody *body, float dt) {
                     // Frame moved too far, reactivate point
                     body->point_active[i] = 1;
                     body->active_point_count++;
+                    // Reset previous position tracking when waking up
+                    body->prev_positions_1[i] = body->points[i].position;
+                    body->prev_positions_2[i] = body->points[i].position;
 
                     // Wake the softbody if it was sleeping
                     if (body->is_sleeping) {
@@ -346,7 +377,16 @@ void soft_body_draw(GContext *ctx, SoftBody *body) {
     if (!body->draw_path) return; // Failed to create path
 
     // Draw filled polygon
+    // If debug flag is enabled and body is sleeping, use green fill color
+#if DEBUG_DRAW_ELEMENTS
+    if (body->is_sleeping) {
+        graphics_context_set_fill_color(ctx, GColorGreen);
+    } else {
+        graphics_context_set_fill_color(ctx, GColorWhite);
+    }
+#else
     graphics_context_set_fill_color(ctx, GColorWhite);
+#endif
     gpath_draw_filled(ctx, body->draw_path);
 
     // Draw outline
@@ -355,9 +395,13 @@ void soft_body_draw(GContext *ctx, SoftBody *body) {
     gpath_draw_outline(ctx, body->draw_path);
 
 #if DEBUG_DRAW_ELEMENTS
-    // Draw point masses as white dots
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    // Draw point masses - green if sleeping, white if active
     for (int i = 0; i < body->point_count; i++) {
+        if (body->point_active[i]) {
+            graphics_context_set_fill_color(ctx, GColorWhite);
+        } else {
+            graphics_context_set_fill_color(ctx, GColorGreen);
+        }
         graphics_fill_circle(ctx, body->points[i].position, 3);
     }
 #endif
