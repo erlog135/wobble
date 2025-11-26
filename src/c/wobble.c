@@ -19,6 +19,22 @@ static GRect s_bounds;
 static int s_display_hour = 0;
 static int s_display_minute = 0;
 
+// Track which digits are currently displayed and their body indices
+typedef enum {
+    DIGIT_POS_HOUR_TENS = 0,
+    DIGIT_POS_HOUR_UNITS = 1,
+    DIGIT_POS_MINUTE_TENS = 2,
+    DIGIT_POS_MINUTE_UNITS = 3
+} DigitPosition;
+
+static struct {
+    int digit_value[4];  // Current digit value for each position (-1 if not set)
+    int body_idx[4];      // Body index for each position (-1 if not set)
+} s_display_digits = {
+    .digit_value = {-1, -1, -1, -1},
+    .body_idx = {-1, -1, -1, -1}
+};
+
 typedef struct {
     const GPoint *points;
     int count;
@@ -55,9 +71,12 @@ static const ShapeDef s_object_shapes[] = {
 #define OBJECT_SHAPE_COUNT (sizeof(s_object_shapes) / sizeof(s_object_shapes[0]))
 
 // Shared scaling options for all shapes
-#define SHAPE_START_SCALE 0.4f
-#define SHAPE_TARGET_SCALE 0.8f
-#define SHAPE_SCALE_SPEED 0.8f
+#define SHAPE_START_SCALE_X 0.2f
+#define SHAPE_START_SCALE_Y 0.4f
+#define SHAPE_TARGET_SCALE_X 0.8f
+#define SHAPE_TARGET_SCALE_Y 0.8f
+#define SHAPE_SCALE_SPEED_X 0.8f
+#define SHAPE_SCALE_SPEED_Y 0.8f
 
 // Structure to pass quadrant information to timer callback
 typedef struct {
@@ -128,8 +147,11 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
     // Initialize soft body with shared scaling options
     int body_idx = s_soft_body_count;
     SoftBody *body = &s_soft_bodies[body_idx];
+    Scale2D start_scale = {.x = SHAPE_START_SCALE_X, .y = SHAPE_START_SCALE_Y};
+    Scale2D target_scale = {.x = SHAPE_TARGET_SCALE_X, .y = SHAPE_TARGET_SCALE_Y};
+    Scale2D scale_speed = {.x = SHAPE_SCALE_SPEED_X, .y = SHAPE_SCALE_SPEED_Y};
     soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
-                   SHAPE_START_SCALE, SHAPE_TARGET_SCALE, SHAPE_SCALE_SPEED);
+                   start_scale, target_scale, scale_speed);
     
     // Create a layer for this body
     Layer *window_layer = window_get_root_layer(s_window);
@@ -146,6 +168,109 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
     layer_mark_dirty(body_layer);
 }
 
+// Replace an existing body with a new shape (for updating digits)
+static void prv_replace_body_shape(int body_idx, const ShapeDef *shape, GPoint center_pos) {
+    if (body_idx < 0 || body_idx >= s_soft_body_count) {
+        return;
+    }
+    
+    SoftBody *body = &s_soft_bodies[body_idx];
+    
+    // Calculate shape bounding box to center it properly
+    int min_x = shape->points[0].x;
+    int max_x = shape->points[0].x;
+    int min_y = shape->points[0].y;
+    int max_y = shape->points[0].y;
+    
+    for (int i = 1; i < shape->count; i++) {
+        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
+        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
+        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
+        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
+    }
+    
+    // Calculate shape center
+    int shape_center_x = (min_x + max_x) / 2;
+    int shape_center_y = (min_y + max_y) / 2;
+    
+    // Calculate offset to place shape center at desired position
+    int offset_x = center_pos.x - shape_center_x;
+    int offset_y = center_pos.y - shape_center_y;
+    
+    // Create GPoint array with offset
+    GPoint *positions = (GPoint *)malloc(sizeof(GPoint) * shape->count);
+    for (int i = 0; i < shape->count; i++) {
+        positions[i] = GPoint(
+            shape->points[i].x + offset_x,
+            shape->points[i].y + offset_y
+        );
+    }
+    
+    // Destroy old body
+    soft_body_destroy(body);
+    
+    // Initialize new soft body with shared scaling options
+    Scale2D start_scale = {.x = SHAPE_START_SCALE_X, .y = SHAPE_START_SCALE_Y};
+    Scale2D target_scale = {.x = SHAPE_TARGET_SCALE_X, .y = SHAPE_TARGET_SCALE_Y};
+    Scale2D scale_speed = {.x = SHAPE_SCALE_SPEED_X, .y = SHAPE_SCALE_SPEED_Y};
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
+                   start_scale, target_scale, scale_speed);
+    
+    free(positions);
+    
+    // Mark layer dirty to show the updated shape
+    if (s_body_layers[body_idx]) {
+        layer_mark_dirty(s_body_layers[body_idx]);
+    }
+}
+
+// Update a single digit at a specific position
+static void prv_update_digit(DigitPosition pos, int new_digit_value) {
+    // Check if digit has changed
+    if (s_display_digits.digit_value[pos] == new_digit_value) {
+        return; // No change needed
+    }
+    
+    // Calculate quadrant positions for 4 numerals
+    int quad_center_x = s_bounds.size.w / 4;
+    int quad_center_y = s_bounds.size.h / 4;
+    int quad_width = s_bounds.size.w / 2;
+    int quad_height = s_bounds.size.h / 2;
+    
+    GPoint position = GPoint(0, 0);  // Initialize to avoid compiler warning
+    switch (pos) {
+        case DIGIT_POS_HOUR_TENS:
+            position = GPoint(quad_center_x, quad_center_y);
+            break;
+        case DIGIT_POS_HOUR_UNITS:
+            position = GPoint(quad_center_x + quad_width, quad_center_y);
+            break;
+        case DIGIT_POS_MINUTE_TENS:
+            position = GPoint(quad_center_x, quad_center_y + quad_height);
+            break;
+        case DIGIT_POS_MINUTE_UNITS:
+            position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
+            break;
+        default:
+            // Should never happen, but initialize to avoid warning
+            position = GPoint(quad_center_x, quad_center_y);
+            break;
+    }
+    
+    // If body already exists, replace it; otherwise create new one
+    if (s_display_digits.body_idx[pos] >= 0 && s_display_digits.body_idx[pos] < s_soft_body_count) {
+        // Replace existing body
+        prv_replace_body_shape(s_display_digits.body_idx[pos], &s_shapes[new_digit_value], position);
+    } else {
+        // Create new body directly (no timer delay for updates)
+        prv_add_shape_at_position(&s_shapes[new_digit_value], position);
+        s_display_digits.body_idx[pos] = s_soft_body_count - 1;
+    }
+    
+    // Update tracked digit value
+    s_display_digits.digit_value[pos] = new_digit_value;
+}
+
 static void prv_physics_timer_callback(void *data) {
     // Update physics for all soft bodies
 
@@ -154,24 +279,34 @@ static void prv_physics_timer_callback(void *data) {
         SoftBody *body = &s_soft_bodies[i];
         bool was_sleeping = body->is_sleeping;
 
-        // Animate frame scale from start_scale to target_scale
-        if (body->frame && body->frame->current_scale != body->target_scale) {
+        // Animate frame scale from start_scale to target_scale (separate x and y)
+        if (body->frame && 
+            (body->frame->current_scale.x != body->target_scale.x || 
+             body->frame->current_scale.y != body->target_scale.y)) {
             // Wake the softbody if it's sleeping (scaling will disturb it)
             if (body->is_sleeping) {
                 soft_body_wake(body);
             }
 
-            // Move towards target scale using configurable speed
-            float scale_diff = body->target_scale - body->frame->current_scale;
-            float scale_step = (scale_diff > 0 ? body->scale_speed : -body->scale_speed);
-            float new_scale = body->frame->current_scale + scale_step;
+            // Move towards target scale using configurable speed (separate for x and y)
+            float scale_diff_x = body->target_scale.x - body->frame->current_scale.x;
+            float scale_diff_y = body->target_scale.y - body->frame->current_scale.y;
+            float scale_step_x = (scale_diff_x > 0 ? body->scale_speed.x : -body->scale_speed.x);
+            float scale_step_y = (scale_diff_y > 0 ? body->scale_speed.y : -body->scale_speed.y);
+            float new_scale_x = body->frame->current_scale.x + scale_step_x;
+            float new_scale_y = body->frame->current_scale.y + scale_step_y;
 
-            // Clamp to target scale to prevent overshooting
-            if ((scale_diff > 0 && new_scale > body->target_scale) ||
-                (scale_diff < 0 && new_scale < body->target_scale)) {
-                new_scale = body->target_scale;
+            // Clamp to target scale to prevent overshooting (separate for x and y)
+            if ((scale_diff_x > 0 && new_scale_x > body->target_scale.x) ||
+                (scale_diff_x < 0 && new_scale_x < body->target_scale.x)) {
+                new_scale_x = body->target_scale.x;
+            }
+            if ((scale_diff_y > 0 && new_scale_y > body->target_scale.y) ||
+                (scale_diff_y < 0 && new_scale_y < body->target_scale.y)) {
+                new_scale_y = body->target_scale.y;
             }
 
+            Scale2D new_scale = {.x = new_scale_x, .y = new_scale_y};
             shape_frame_set_scale(body->frame, new_scale);
         }
 
@@ -203,7 +338,8 @@ static void prv_background_update_proc(Layer *layer, GContext *ctx) {
 }
 
 // Timer callback to add a shape at a specific quadrant
-static void prv_add_shape_timer_callback(void *data) {
+// Note: Currently unused, kept for potential future use with delayed animations
+__attribute__((unused)) static void prv_add_shape_timer_callback(void *data) {
     QuadrantData *quad_data = (QuadrantData *)data;
     
     // Add the shape at the specified position
@@ -213,58 +349,160 @@ static void prv_add_shape_timer_callback(void *data) {
     free(quad_data);
 }
 
-// Update the 4 numerals to display the given time (HH:MM format)
-static void prv_update_time_display(int hour, int minute) {
-    // Clear all existing bodies and their layers
-    for (int i = 0; i < s_soft_body_count; i++) {
-        soft_body_destroy(&s_soft_bodies[i]);
-        if (s_body_layers[i]) {
-            layer_remove_from_parent(s_body_layers[i]);
-            layer_destroy(s_body_layers[i]);
-            s_body_layers[i] = NULL;
-        }
+// Convert 24-hour format to 12-hour format
+static int prv_convert_to_12h(int hour_24h) {
+    if (hour_24h == 0) {
+        return 12;  // Midnight -> 12
+    } else if (hour_24h > 12) {
+        return hour_24h - 12;  // 13-23 -> 1-11
+    } else {
+        return hour_24h;  // 1-12 -> 1-12
     }
-    s_soft_body_count = 0;
+}
+
+// Update the 4 numerals to display the given time (HH:MM format)
+// hour should be in 24-hour format; it will be converted based on user preference
+static void prv_update_time_display(int hour_24h, int minute) {
+    // Convert hour based on user's 12/24 hour preference
+    int display_hour;
+    if (clock_is_24h_style()) {
+        display_hour = hour_24h;  // Use 24-hour format (0-23)
+    } else {
+        display_hour = prv_convert_to_12h(hour_24h);  // Convert to 12-hour format (1-12)
+    }
     
     // Extract digits: HH:MM -> hour_tens, hour_units, minute_tens, minute_units
-    int hour_tens = hour / 10;
-    int hour_units = hour % 10;
+    int hour_tens = display_hour / 10;
+    int hour_units = display_hour % 10;
     int minute_tens = minute / 10;
     int minute_units = minute % 10;
     
-    // Calculate quadrant positions for 4 numerals
-    int quad_center_x = s_bounds.size.w / 4;
-    int quad_center_y = s_bounds.size.h / 4;
-    int quad_width = s_bounds.size.w / 2;
-    int quad_height = s_bounds.size.h / 2;
+    // Update only changed digits
+    prv_update_digit(DIGIT_POS_HOUR_TENS, hour_tens);
+    prv_update_digit(DIGIT_POS_HOUR_UNITS, hour_units);
+    prv_update_digit(DIGIT_POS_MINUTE_TENS, minute_tens);
+    prv_update_digit(DIGIT_POS_MINUTE_UNITS, minute_units);
+}
+
+// Forward declarations
+static void prv_increment_hour(void);
+static void prv_decrement_hour(void);
+
+// Increment hours by 1, wrapping at 24
+static void prv_increment_hour(void) {
+    int old_hour = s_display_hour;
+    s_display_hour++;
     
-    // Add 4 numerals: hour_tens (top-left), hour_units (top-right),
-    //                 minute_tens (bottom-left), minute_units (bottom-right)
-    QuadrantData *quad_data;
+    // Handle hour overflow (wrap 24 -> 0, since we store in 24h format internally)
+    if (s_display_hour >= 24) {
+        s_display_hour = 0;
+    }
     
-    // Hour tens (top-left)
-    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = hour_tens;
-    quad_data->position = GPoint(quad_center_x, quad_center_y);
-    app_timer_register(0, prv_add_shape_timer_callback, quad_data);
+    // Convert to display format for comparison
+    int old_display_hour = clock_is_24h_style() ? old_hour : prv_convert_to_12h(old_hour);
+    int new_display_hour = clock_is_24h_style() ? s_display_hour : prv_convert_to_12h(s_display_hour);
     
-    // Hour units (top-right)
-    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = hour_units;
-    quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y);
-    app_timer_register(SHAPE_APPEAR_DELAY_MS, prv_add_shape_timer_callback, quad_data);
+    int old_hour_tens = old_display_hour / 10;
+    int old_hour_units = old_display_hour % 10;
+    int new_hour_tens = new_display_hour / 10;
+    int new_hour_units = new_display_hour % 10;
     
-    // Minute tens (bottom-left)
-    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = minute_tens;
-    quad_data->position = GPoint(quad_center_x, quad_center_y + quad_height);
-    app_timer_register(SHAPE_APPEAR_DELAY_MS * 2, prv_add_shape_timer_callback, quad_data);
+    // Update hour units if changed
+    if (new_hour_units != old_hour_units) {
+        prv_update_digit(DIGIT_POS_HOUR_UNITS, new_hour_units);
+    }
     
-    // Minute units (bottom-right)
-    quad_data = (QuadrantData *)malloc(sizeof(QuadrantData));
-    quad_data->shape_idx = minute_units;
-    quad_data->position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
-    app_timer_register(SHAPE_APPEAR_DELAY_MS * 3, prv_add_shape_timer_callback, quad_data);
+    // Update hour tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_hour_tens != old_hour_tens) {
+        prv_update_digit(DIGIT_POS_HOUR_TENS, new_hour_tens);
+    }
+}
+
+// Decrement hours by 1, wrapping at 0
+static void prv_decrement_hour(void) {
+    int old_hour = s_display_hour;
+    s_display_hour--;
+    
+    // Handle hour underflow (wrap 0 -> 23, since we store in 24h format internally)
+    if (s_display_hour < 0) {
+        s_display_hour = 23;
+    }
+    
+    // Convert to display format for comparison
+    int old_display_hour = clock_is_24h_style() ? old_hour : prv_convert_to_12h(old_hour);
+    int new_display_hour = clock_is_24h_style() ? s_display_hour : prv_convert_to_12h(s_display_hour);
+    
+    int old_hour_tens = old_display_hour / 10;
+    int old_hour_units = old_display_hour % 10;
+    int new_hour_tens = new_display_hour / 10;
+    int new_hour_units = new_display_hour % 10;
+    
+    // Update hour units if changed
+    if (new_hour_units != old_hour_units) {
+        prv_update_digit(DIGIT_POS_HOUR_UNITS, new_hour_units);
+    }
+    
+    // Update hour tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_hour_tens != old_hour_tens) {
+        prv_update_digit(DIGIT_POS_HOUR_TENS, new_hour_tens);
+    }
+}
+
+// Increment minutes by 1, cascading to hours if needed
+static void prv_increment_minute(void) {
+    int old_minute = s_display_minute;
+    s_display_minute++;
+    
+    // Handle minute overflow (wrap to next hour)
+    if (s_display_minute >= 60) {
+        s_display_minute = 0;
+        prv_increment_hour();  // This will update hour digits if needed
+    }
+    
+    // Update only changed minute digits
+    int old_minute_tens = old_minute / 10;
+    int old_minute_units = old_minute % 10;
+    int new_minute_tens = s_display_minute / 10;
+    int new_minute_units = s_display_minute % 10;
+    
+    // Update minute units if changed
+    if (new_minute_units != old_minute_units) {
+        prv_update_digit(DIGIT_POS_MINUTE_UNITS, new_minute_units);
+    }
+    
+    // Update minute tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_minute_tens != old_minute_tens) {
+        prv_update_digit(DIGIT_POS_MINUTE_TENS, new_minute_tens);
+    }
+}
+
+// Decrement minutes by 1, cascading to hours if needed
+// Note: Currently unused, kept for potential future use
+__attribute__((unused)) static void prv_decrement_minute(void) {
+    int old_minute = s_display_minute;
+    s_display_minute--;
+    
+    // Handle minute underflow (wrap to previous hour)
+    if (s_display_minute < 0) {
+        s_display_minute = 59;
+        prv_decrement_hour();  // This will update hour digits if needed
+    }
+    
+    // Update only changed minute digits
+    int old_minute_tens = old_minute / 10;
+    int old_minute_units = old_minute % 10;
+    int new_minute_tens = s_display_minute / 10;
+    int new_minute_units = s_display_minute % 10;
+    
+    // Update minute units if changed
+    if (new_minute_units != old_minute_units) {
+        prv_update_digit(DIGIT_POS_MINUTE_UNITS, new_minute_units);
+    }
+    
+    // Update minute tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_minute_tens != old_minute_tens) {
+        prv_update_digit(DIGIT_POS_MINUTE_TENS, new_minute_tens);
+    }
 }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -291,25 +529,17 @@ static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
         }
     }
     s_soft_body_count = 0;
+    
+    // Reset digit tracking
+    for (int i = 0; i < 4; i++) {
+        s_display_digits.digit_value[i] = -1;
+        s_display_digits.body_idx[i] = -1;
+    }
 }
 
 static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Increase minutes by 1
-    s_display_minute++;
-    
-    // Handle minute overflow (wrap to next hour)
-    if (s_display_minute >= 60) {
-        s_display_minute = 0;
-        s_display_hour++;
-    }
-    
-    // Handle hour overflow (wrap to 0)
-    if (s_display_hour >= 24) {
-        s_display_hour = 0;
-    }
-    
-    // Update the display with new time
-    prv_update_time_display(s_display_hour, s_display_minute);
+    // Increment minutes (will update only changed digits, cascading to hours if needed)
+    prv_increment_minute();
 }
 
 static void prv_click_config_provider(void *context) {

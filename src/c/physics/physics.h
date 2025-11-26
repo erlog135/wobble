@@ -15,6 +15,12 @@ typedef struct Spring Spring;
 typedef struct ShapeFrame ShapeFrame;
 typedef struct SoftBody SoftBody;
 
+// Structure for storing separate x and y scale factors (floats)
+typedef struct {
+    float x;
+    float y;
+} Scale2D;
+
 // Point mass structure
 struct PointMass {
     GPoint position;
@@ -39,7 +45,7 @@ struct ShapeFrame {
     PointMass *frame_points;  // Ideal shape positions (can be moved directly)
     GPoint *original_positions;  // Original shape positions (for scaling)
     int point_count;
-    float current_scale;  // Current scale factor (1.0 = normal size)
+    Scale2D current_scale;  // Current scale factors (x, y) - (1.0, 1.0) = normal size
 };
 
 // Soft body structure containing point masses and springs
@@ -52,9 +58,9 @@ struct SoftBody {
     ShapeFrame *frame;        // Reference shape frame that drives the body
 
     // Scale animation configuration
-    float start_scale;        // Initial scale factor (e.g., 0.5f for half size)
-    float target_scale;       // Target scale factor (e.g., 1.0f for normal size)
-    float scale_speed;        // Scale change per frame (e.g., 0.1f)
+    Scale2D start_scale;        // Initial scale factors (x, y) (e.g., (0.5f, 0.5f) for half size)
+    Scale2D target_scale;       // Target scale factors (x, y) (e.g., (1.0f, 1.0f) for normal size)
+    Scale2D scale_speed;        // Scale change per frame (x, y) (e.g., (0.1f, 0.1f))
 
     // Drawing optimization - cached GPath and points array
     GPath *draw_path;         // Cached GPath for drawing the body
@@ -113,15 +119,15 @@ void spring_init(Spring *spring, PointMass *p1, PointMass *p2, int rest_length, 
 void spring_apply_forces(Spring *spring);
 
 // Shape frame functions
-void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, float start_scale);
+void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, Scale2D start_scale);
 void shape_frame_destroy(ShapeFrame *frame);
 void shape_frame_set_position(ShapeFrame *frame, GPoint position);
 void shape_frame_set_rotation(ShapeFrame *frame, float angle_radians, GPoint center);
-void shape_frame_set_scale(ShapeFrame *frame, float scale);
+void shape_frame_set_scale(ShapeFrame *frame, Scale2D scale);
 void shape_frame_translate(ShapeFrame *frame, GPoint offset);
 
 // Soft body functions
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, float start_scale, float target_scale, float scale_speed);
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, Scale2D start_scale, Scale2D target_scale, Scale2D scale_speed);
 void soft_body_destroy(SoftBody *body);
 void soft_body_apply_spring_forces(SoftBody *body);
 void soft_body_apply_damping(SoftBody *body, float damping);

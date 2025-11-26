@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 // Shape frame functions
-void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, float start_scale) {
+void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, Scale2D start_scale) {
     frame->point_count = point_count;
     frame->frame_points = (PointMass *)malloc(sizeof(PointMass) * point_count);
     frame->original_positions = (GPoint *)malloc(sizeof(GPoint) * point_count);
@@ -28,8 +28,8 @@ void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, flo
         int dx = positions[i].x - center.x;
         int dy = positions[i].y - center.y;
         GPoint scaled_pos = GPoint(
-            center.x + (int)(dx * frame->current_scale + 0.5f),
-            center.y + (int)(dy * frame->current_scale + 0.5f)
+            center.x + (int)(dx * frame->current_scale.x + 0.5f),
+            center.y + (int)(dy * frame->current_scale.y + 0.5f)
         );
         
         point_mass_init(&frame->frame_points[i], scaled_pos, FRAME_MASS);
@@ -48,7 +48,8 @@ void shape_frame_destroy(ShapeFrame *frame) {
         frame->original_positions = NULL;
     }
     frame->point_count = 0;
-    frame->current_scale = 1.0f;
+    frame->current_scale.x = 1.0f;
+    frame->current_scale.y = 1.0f;
 }
 
 void shape_frame_set_position(ShapeFrame *frame, GPoint position) {
@@ -102,7 +103,7 @@ void shape_frame_set_rotation(ShapeFrame *frame, float angle_radians, GPoint cen
     }
 }
 
-void shape_frame_set_scale(ShapeFrame *frame, float scale) {
+void shape_frame_set_scale(ShapeFrame *frame, Scale2D scale) {
     if (frame->point_count == 0 || !frame->original_positions) return;
     
     frame->current_scale = scale;
@@ -116,12 +117,12 @@ void shape_frame_set_scale(ShapeFrame *frame, float scale) {
     center.x /= frame->point_count;
     center.y /= frame->point_count;
     
-    // Scale all points from center
+    // Scale all points from center with separate x and y scales
     for (int i = 0; i < frame->point_count; i++) {
         int dx = frame->original_positions[i].x - center.x;
         int dy = frame->original_positions[i].y - center.y;
-        frame->frame_points[i].position.x = center.x + (int)(dx * scale + 0.5f);
-        frame->frame_points[i].position.y = center.y + (int)(dy * scale + 0.5f);
+        frame->frame_points[i].position.x = center.x + (int)(dx * scale.x + 0.5f);
+        frame->frame_points[i].position.y = center.y + (int)(dy * scale.y + 0.5f);
     }
 }
 
@@ -139,7 +140,7 @@ void shape_frame_translate(ShapeFrame *frame, GPoint offset) {
     }
 }
 
-void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, float start_scale, float target_scale, float scale_speed) {
+void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass, float damping, Scale2D start_scale, Scale2D target_scale, Scale2D scale_speed) {
     body->point_count = point_count;
     
     // Allocate memory for body points
