@@ -346,17 +346,21 @@ static void prv_draw_grid(GContext *ctx, GRect bounds) {
         return;
     }
     
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorPictonBlue, GColorBlack));
+    graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorPictonBlue, GColorDarkGray));
     graphics_context_set_stroke_width(ctx, 1);
     
     // Draw vertical lines (centered)
     for (int x = layout->grid_offset_x; x <= bounds.size.w; x += layout->grid_spacing_x) {
-        graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, bounds.size.h));
+        //graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, bounds.size.h));
+        //for now, fill a 1px wide rectangle
+        graphics_fill_rect(ctx, GRect(x, 0, 1, bounds.size.h), 0, GCornerNone);
     }
     
     // Draw horizontal lines (centered)
     for (int y = layout->grid_offset_y; y <= bounds.size.h; y += layout->grid_spacing_y) {
-        graphics_draw_line(ctx, GPoint(0, y), GPoint(bounds.size.w, y));
+        //graphics_draw_line(ctx, GPoint(0, y), GPoint(bounds.size.w, y));
+        //for now, fill a 1px tall rectangle
+        graphics_fill_rect(ctx, GRect(0, y, bounds.size.w, 1), 0, GCornerNone);
     }
 }
 

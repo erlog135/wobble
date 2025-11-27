@@ -15,13 +15,15 @@
 #define DEFAULT_GRID_SPACING_Y 25
 #define DEFAULT_GRID_ENABLED true
 
+#define NUMERAL_X_PADDING 10
+
 // Widget layout constants
-#define BATTERY_BAR_OUTLINE_WIDTH 2
+#define WIDGET_OUTLINE_WIDTH 2
 #define EDGE_PADDING 2
 #define BATTERY_BAR_PADDING 2
 #define WIDGET_BAR_HEIGHT 20
-#define DOTW_CIRCLE_RADIUS 10
-#define DOTW_TEXT_FONT FONT_KEY_GOTHIC_14_BOLD
+#define DOTW_CIRCLE_RADIUS 12
+#define DOTW_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
 #define DATE_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
 
 // Layout structure containing all layout properties

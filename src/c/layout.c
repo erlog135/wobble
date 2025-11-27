@@ -9,14 +9,20 @@ void set_layout(GRect bounds) {
     // Store bounds
     layout->bounds = bounds;
     
-    // Calculate quadrant layout properties,
-    // but reserve WIDGET_BAR_HEIGHT at the top for widgets.
-    layout->quad_center_x = bounds.size.w / 4;
-    layout->quad_center_y = (bounds.size.h - WIDGET_BAR_HEIGHT) / 4 + WIDGET_BAR_HEIGHT;
-    layout->quad_width = bounds.size.w / 2;
-    layout->quad_height = (bounds.size.h - WIDGET_BAR_HEIGHT) / 2;
+    // Calculate available width for numerals after applying horizontal paddings
+    int numeral_area_x = NUMERAL_X_PADDING;
+    int numeral_area_w = bounds.size.w - NUMERAL_X_PADDING * 2;
+    int numeral_area_y = WIDGET_BAR_HEIGHT;
+    int numeral_area_h = bounds.size.h - WIDGET_BAR_HEIGHT;
 
-    // Calculate digit positions (4 quadrants), shifted down by WIDGET_BAR_HEIGHT
+    // Calculate quadrant layout properties within numeral area,
+    // but reserve WIDGET_BAR_HEIGHT at the top for widgets.
+    layout->quad_center_x = numeral_area_x + numeral_area_w / 4;
+    layout->quad_center_y = numeral_area_y + numeral_area_h / 4;
+    layout->quad_width = numeral_area_w / 2;
+    layout->quad_height = numeral_area_h / 2;
+
+    // Calculate digit positions (4 quadrants), shifted down by WIDGET_BAR_HEIGHT, symmetrically padded by NUMERAL_X_PADDING
     // DIGIT_POS_HOUR_TENS = 0
     layout->digit_positions[0] = GPoint(layout->quad_center_x, layout->quad_center_y);
     // DIGIT_POS_HOUR_UNITS = 1

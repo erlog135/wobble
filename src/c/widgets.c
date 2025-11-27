@@ -26,9 +26,9 @@ void widgets_draw_battery_bar(GContext *ctx) {
     int full_width = bounds.size.w;
     int main_bar_width = (full_width * battery_percent) / 100;
     
-    int base_x = bounds.origin.x + BATTERY_BAR_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
-    int base_y = bounds.origin.y + BATTERY_BAR_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
-    int bar_height = bounds.size.h;
+    int base_x = bounds.origin.x + WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
+    int base_y = bounds.origin.y + WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
+    int bar_height = bounds.size.h - BATTERY_BAR_PADDING * 2;
     
     // Calculate segment widths - each segment represents 25% of the full width
     int segment_width = full_width / 4;
@@ -116,12 +116,12 @@ void widgets_draw_battery_bar(GContext *ctx) {
     // Draw this FIRST (bottom layer) so segments appear on top
     if (main_bar_width > 0) {
         // Draw black background rectangle to emulate stroke (bottommost layer)
-        // This extends BATTERY_BAR_OUTLINE_WIDTH pixels on all sides
+        // This extends WIDGET_OUTLINE_WIDTH pixels on all sides
         GRect stroke_background = GRect(
-            base_x - BATTERY_BAR_OUTLINE_WIDTH,
-            base_y - BATTERY_BAR_OUTLINE_WIDTH,
-            main_bar_width + (BATTERY_BAR_OUTLINE_WIDTH * 2),
-            bar_height + (BATTERY_BAR_OUTLINE_WIDTH * 2)
+            base_x - WIDGET_OUTLINE_WIDTH,
+            base_y - WIDGET_OUTLINE_WIDTH,
+            main_bar_width + (WIDGET_OUTLINE_WIDTH * 2),
+            bar_height + (WIDGET_OUTLINE_WIDTH * 2)
         );
         graphics_context_set_fill_color(ctx, GColorBlack);
         graphics_fill_rect(ctx, stroke_background, 0, GCornerNone);
@@ -178,10 +178,10 @@ void widgets_draw_battery_bar(GContext *ctx) {
     } else {
         // Draw empty outline if battery is at 0% using fill_rect
         GRect empty_stroke = GRect(
-            base_x - BATTERY_BAR_OUTLINE_WIDTH,
-            base_y - BATTERY_BAR_OUTLINE_WIDTH,
-            BATTERY_BAR_OUTLINE_WIDTH * 2,
-            bar_height + (BATTERY_BAR_OUTLINE_WIDTH * 2)
+            base_x - WIDGET_OUTLINE_WIDTH,
+            base_y - WIDGET_OUTLINE_WIDTH,
+            WIDGET_OUTLINE_WIDTH * 2,
+            bar_height + (WIDGET_OUTLINE_WIDTH * 2)
         );
         graphics_context_set_fill_color(ctx, GColorBlack);
         graphics_fill_rect(ctx, empty_stroke, 0, GCornerNone);
@@ -203,7 +203,7 @@ void widgets_draw_date(GContext *ctx) {
     GFont font = fonts_get_system_font(DATE_TEXT_FONT);
     
     // Draw text (right-aligned since position is at top-right)
-    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_context_set_text_color(ctx, GColorDarkGreen);
     graphics_draw_text(ctx, date_buffer, font, 
                        GRect(layout->date_position.x - 40, layout->date_position.y, 50, 20),
                        GTextOverflowModeTrailingEllipsis,
@@ -221,10 +221,15 @@ void widgets_draw_day_of_week(GContext *ctx) {
     int day_of_week = tick_time->tm_wday;
     const char* day_text = s_day_abbreviations[day_of_week];
     
-    // Draw circle outline
-    graphics_context_set_stroke_color(ctx, GColorBlack);
-    graphics_context_set_stroke_width(ctx, 2);
-    graphics_draw_circle(ctx, layout->dotw_position, DOTW_CIRCLE_RADIUS);
+    // Draw black outer circle to emulate stroke (bottommost layer)
+    // Stroke width is 2px, so outer radius is DOTW_CIRCLE_RADIUS + 2
+    int outer_radius = DOTW_CIRCLE_RADIUS + WIDGET_OUTLINE_WIDTH;
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_circle(ctx, layout->dotw_position, outer_radius);
+    
+    // Draw green filled circle on top (middle layer)
+    graphics_context_set_fill_color(ctx, GColorGreen);
+    graphics_fill_circle(ctx, layout->dotw_position, DOTW_CIRCLE_RADIUS);
     
     // Get font for text
     GFont font = fonts_get_system_font(DOTW_TEXT_FONT);
@@ -237,12 +242,12 @@ void widgets_draw_day_of_week(GContext *ctx) {
                                                              GTextAlignmentCenter);
     
     GPoint text_pos = GPoint(
-        layout->dotw_position.x - text_size.w / 2,
-        layout->dotw_position.y - text_size.h / 2
+        layout->dotw_position.x - text_size.w / 2 - 2, //hehe magic number
+        layout->date_position.y
     );
     
-    // Draw text centered in circle
-    graphics_context_set_text_color(ctx, GColorBlack);
+    // Draw text centered in circle (top layer)
+    graphics_context_set_text_color(ctx, GColorMidnightGreen);
     graphics_draw_text(ctx, day_text, font,
                        GRect(text_pos.x, text_pos.y, text_size.w + 4, text_size.h + 4),
                        GTextOverflowModeTrailingEllipsis,
