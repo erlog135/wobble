@@ -3,6 +3,8 @@
 #include "physics/physics.h"
 #include "physics/numerals.h"
 #include "physics/objects.h"
+#include "layout.h"
+#include "widgets.h"
 
 #define MAX_SOFT_BODIES 10
 #define PHYSICS_TIMER_MS 33  // ~30 FPS
@@ -70,13 +72,21 @@ static const ShapeDef s_object_shapes[] = {
 };
 #define OBJECT_SHAPE_COUNT (sizeof(s_object_shapes) / sizeof(s_object_shapes[0]))
 
-// Shared scaling options for all shapes
-#define SHAPE_START_SCALE_X 0.2f
-#define SHAPE_START_SCALE_Y 0.4f
-#define SHAPE_TARGET_SCALE_X 0.8f
-#define SHAPE_TARGET_SCALE_Y 0.8f
-#define SHAPE_SCALE_SPEED_X 0.8f
-#define SHAPE_SCALE_SPEED_Y 0.8f
+static GColor get_numeral_color(int digit) {
+    switch (digit) {
+        case 0:  return GColorElectricBlue;
+        case 1:  return GColorYellow;
+        case 2:  return GColorOrange;
+        case 3:  return GColorPictonBlue;
+        case 4:  return GColorGreen;
+        case 5:  return GColorRichBrilliantLavender;
+        case 6:  return GColorPastelYellow;
+        case 7:  return GColorFolly;
+        case 8:  return GColorMediumAquamarine;
+        case 9:  return GColorLavenderIndigo;
+        default: return GColorWhite;
+    }
+}
 
 // Structure to pass quadrant information to timer callback
 typedef struct {
@@ -144,14 +154,24 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
         );
     }
     
-    // Initialize soft body with shared scaling options
+    // Initialize soft body with layout scaling options
     int body_idx = s_soft_body_count;
     SoftBody *body = &s_soft_bodies[body_idx];
-    Scale2D start_scale = {.x = SHAPE_START_SCALE_X, .y = SHAPE_START_SCALE_Y};
-    Scale2D target_scale = {.x = SHAPE_TARGET_SCALE_X, .y = SHAPE_TARGET_SCALE_Y};
-    Scale2D scale_speed = {.x = SHAPE_SCALE_SPEED_X, .y = SHAPE_SCALE_SPEED_Y};
+    const Layout *layout = get_layout();
     soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
-                   start_scale, target_scale, scale_speed);
+                   layout->start_scale, layout->target_scale, layout->scale_speed);
+    
+    // Set digit value and fill color based on shape index
+    // Find which digit this shape represents by searching s_shapes array
+    int digit_value = -1;
+    for (size_t i = 0; i < SHAPE_COUNT; i++) {
+        if (&s_shapes[i] == shape) {
+            digit_value = (int)i;
+            break;
+        }
+    }
+    body->digit_value = digit_value;
+    body->fill_color = get_numeral_color(digit_value);
     
     // Create a layer for this body
     Layer *window_layer = window_get_root_layer(s_window);
@@ -209,12 +229,22 @@ static void prv_replace_body_shape(int body_idx, const ShapeDef *shape, GPoint c
     // Destroy old body
     soft_body_destroy(body);
     
-    // Initialize new soft body with shared scaling options
-    Scale2D start_scale = {.x = SHAPE_START_SCALE_X, .y = SHAPE_START_SCALE_Y};
-    Scale2D target_scale = {.x = SHAPE_TARGET_SCALE_X, .y = SHAPE_TARGET_SCALE_Y};
-    Scale2D scale_speed = {.x = SHAPE_SCALE_SPEED_X, .y = SHAPE_SCALE_SPEED_Y};
+    // Initialize new soft body with layout scaling options
+    const Layout *layout = get_layout();
     soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
-                   start_scale, target_scale, scale_speed);
+                   layout->start_scale, layout->target_scale, layout->scale_speed);
+    
+    // Set digit value and fill color based on shape index
+    // Find which digit this shape represents by searching s_shapes array
+    int digit_value = -1;
+    for (size_t i = 0; i < SHAPE_COUNT; i++) {
+        if (&s_shapes[i] == shape) {
+            digit_value = (int)i;
+            break;
+        }
+    }
+    body->digit_value = digit_value;
+    body->fill_color = get_numeral_color(digit_value);
     
     free(positions);
     
@@ -231,31 +261,9 @@ static void prv_update_digit(DigitPosition pos, int new_digit_value) {
         return; // No change needed
     }
     
-    // Calculate quadrant positions for 4 numerals
-    int quad_center_x = s_bounds.size.w / 4;
-    int quad_center_y = s_bounds.size.h / 4;
-    int quad_width = s_bounds.size.w / 2;
-    int quad_height = s_bounds.size.h / 2;
-    
-    GPoint position = GPoint(0, 0);  // Initialize to avoid compiler warning
-    switch (pos) {
-        case DIGIT_POS_HOUR_TENS:
-            position = GPoint(quad_center_x, quad_center_y);
-            break;
-        case DIGIT_POS_HOUR_UNITS:
-            position = GPoint(quad_center_x + quad_width, quad_center_y);
-            break;
-        case DIGIT_POS_MINUTE_TENS:
-            position = GPoint(quad_center_x, quad_center_y + quad_height);
-            break;
-        case DIGIT_POS_MINUTE_UNITS:
-            position = GPoint(quad_center_x + quad_width, quad_center_y + quad_height);
-            break;
-        default:
-            // Should never happen, but initialize to avoid warning
-            position = GPoint(quad_center_x, quad_center_y);
-            break;
-    }
+    // Get position from layout
+    const Layout *layout = get_layout();
+    GPoint position = layout->digit_positions[pos];
     
     // If body already exists, replace it; otherwise create new one
     if (s_display_digits.body_idx[pos] >= 0 && s_display_digits.body_idx[pos] < s_soft_body_count) {
@@ -331,10 +339,38 @@ static void prv_physics_timer_callback(void *data) {
     }
 }
 
-// Background layer update proc - just draws the background
+// Draw grid lines on the background
+static void prv_draw_grid(GContext *ctx, GRect bounds) {
+    const Layout *layout = get_layout();
+    if (!layout->grid_enabled) {
+        return;
+    }
+    
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorPictonBlue, GColorBlack));
+    graphics_context_set_stroke_width(ctx, 1);
+    
+    // Draw vertical lines (centered)
+    for (int x = layout->grid_offset_x; x <= bounds.size.w; x += layout->grid_spacing_x) {
+        graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, bounds.size.h));
+    }
+    
+    // Draw horizontal lines (centered)
+    for (int y = layout->grid_offset_y; y <= bounds.size.h; y += layout->grid_spacing_y) {
+        graphics_draw_line(ctx, GPoint(0, y), GPoint(bounds.size.w, y));
+    }
+}
+
+// Background layer update proc - draws the background and grid
 static void prv_background_update_proc(Layer *layer, GContext *ctx) {
+    // Draw white background
     graphics_context_set_fill_color(ctx, GColorWhite);
     graphics_fill_rect(ctx, s_bounds, 0, GCornerNone);
+    
+    // Draw grid lines on top
+    prv_draw_grid(ctx, s_bounds);
+    
+    // Draw widgets (battery bar, date, day of week)
+    widgets_draw(ctx);
 }
 
 // Timer callback to add a shape at a specific quadrant
@@ -384,10 +420,6 @@ static void prv_update_time_display(int hour_24h, int minute) {
     prv_update_digit(DIGIT_POS_MINUTE_UNITS, minute_units);
 }
 
-// Forward declarations
-static void prv_increment_hour(void);
-static void prv_decrement_hour(void);
-
 // Increment hours by 1, wrapping at 24
 static void prv_increment_hour(void) {
     int old_hour = s_display_hour;
@@ -396,36 +428,6 @@ static void prv_increment_hour(void) {
     // Handle hour overflow (wrap 24 -> 0, since we store in 24h format internally)
     if (s_display_hour >= 24) {
         s_display_hour = 0;
-    }
-    
-    // Convert to display format for comparison
-    int old_display_hour = clock_is_24h_style() ? old_hour : prv_convert_to_12h(old_hour);
-    int new_display_hour = clock_is_24h_style() ? s_display_hour : prv_convert_to_12h(s_display_hour);
-    
-    int old_hour_tens = old_display_hour / 10;
-    int old_hour_units = old_display_hour % 10;
-    int new_hour_tens = new_display_hour / 10;
-    int new_hour_units = new_display_hour % 10;
-    
-    // Update hour units if changed
-    if (new_hour_units != old_hour_units) {
-        prv_update_digit(DIGIT_POS_HOUR_UNITS, new_hour_units);
-    }
-    
-    // Update hour tens if changed (happens when wrapping or crossing 10s boundary)
-    if (new_hour_tens != old_hour_tens) {
-        prv_update_digit(DIGIT_POS_HOUR_TENS, new_hour_tens);
-    }
-}
-
-// Decrement hours by 1, wrapping at 0
-static void prv_decrement_hour(void) {
-    int old_hour = s_display_hour;
-    s_display_hour--;
-    
-    // Handle hour underflow (wrap 0 -> 23, since we store in 24h format internally)
-    if (s_display_hour < 0) {
-        s_display_hour = 23;
     }
     
     // Convert to display format for comparison
@@ -457,35 +459,6 @@ static void prv_increment_minute(void) {
     if (s_display_minute >= 60) {
         s_display_minute = 0;
         prv_increment_hour();  // This will update hour digits if needed
-    }
-    
-    // Update only changed minute digits
-    int old_minute_tens = old_minute / 10;
-    int old_minute_units = old_minute % 10;
-    int new_minute_tens = s_display_minute / 10;
-    int new_minute_units = s_display_minute % 10;
-    
-    // Update minute units if changed
-    if (new_minute_units != old_minute_units) {
-        prv_update_digit(DIGIT_POS_MINUTE_UNITS, new_minute_units);
-    }
-    
-    // Update minute tens if changed (happens when wrapping or crossing 10s boundary)
-    if (new_minute_tens != old_minute_tens) {
-        prv_update_digit(DIGIT_POS_MINUTE_TENS, new_minute_tens);
-    }
-}
-
-// Decrement minutes by 1, cascading to hours if needed
-// Note: Currently unused, kept for potential future use
-__attribute__((unused)) static void prv_decrement_minute(void) {
-    int old_minute = s_display_minute;
-    s_display_minute--;
-    
-    // Handle minute underflow (wrap to previous hour)
-    if (s_display_minute < 0) {
-        s_display_minute = 59;
-        prv_decrement_hour();  // This will update hour digits if needed
     }
     
     // Update only changed minute digits
@@ -551,6 +524,9 @@ static void prv_click_config_provider(void *context) {
 static void prv_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     s_bounds = layer_get_bounds(window_layer);
+    
+    // Initialize layout with screen bounds (singleton)
+    set_layout(s_bounds);
     
     // Initialize body layers array
     for (int i = 0; i < MAX_SOFT_BODIES; i++) {

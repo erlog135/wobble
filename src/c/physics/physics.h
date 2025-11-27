@@ -72,6 +72,10 @@ struct SoftBody {
     char is_sleeping;         // Whether the entire softbody is sleeping (all points inactive)
     GPoint *prev_positions_1; // Array storing positions from 1 update ago (for sleep detection)
     GPoint *prev_positions_2; // Array storing positions from 2 updates ago (for sleep detection)
+    
+    // Drawing metadata
+    int digit_value;          // Digit value (0-9) for color selection, -1 if not a digit
+    GColor fill_color;        // Fill color for drawing (used when DEBUG_DRAW_ELEMENTS is off)
 };
 
 // Physics constants

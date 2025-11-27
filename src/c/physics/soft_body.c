@@ -64,11 +64,6 @@ void shape_frame_set_position(ShapeFrame *frame, GPoint position) {
     center.x /= frame->point_count;
     center.y /= frame->point_count;
 
-    // Check if this is a significant movement (more than sleep threshold)
-    int dx = position.x - center.x;
-    int dy = position.y - center.y;
-    int distance_squared = dx * dx + dy * dy;
-
     // Translate all points by the offset
     GPoint offset = GPoint(position.x - center.x, position.y - center.y);
     shape_frame_translate(frame, offset);
@@ -198,6 +193,10 @@ void soft_body_init(SoftBody *body, GPoint *positions, int point_count, int mass
         body->prev_positions_1[i] = body->points[i].position;
         body->prev_positions_2[i] = body->points[i].position;
     }
+    
+    // Initialize drawing metadata
+    body->digit_value = -1;  // Not a digit by default
+    body->fill_color = GColorWhite;  // Default fill color
 }
 
 void soft_body_destroy(SoftBody *body) {
@@ -386,7 +385,8 @@ void soft_body_draw(GContext *ctx, SoftBody *body) {
         graphics_context_set_fill_color(ctx, GColorWhite);
     }
 #else
-    graphics_context_set_fill_color(ctx, GColorWhite);
+    // Use the body's fill color (set based on digit value)
+    graphics_context_set_fill_color(ctx, body->fill_color);
 #endif
     gpath_draw_filled(ctx, body->draw_path);
 
