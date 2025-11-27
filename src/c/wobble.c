@@ -1,59 +1,40 @@
 #include <pebble.h>
+#include <time.h>
 #include "physics/physics.h"
+#include "physics/numerals.h"
+#include "physics/objects.h"
+#include "layout.h"
+#include "widgets.h"
 
 #define MAX_SOFT_BODIES 10
-#define PHYSICS_TIMER_MS 16  // ~60 FPS
+#define PHYSICS_TIMER_MS 33  // ~30 FPS
+#define SHAPE_APPEAR_DELAY_MS 50  // Delay between shapes appearing (milliseconds)
 
 static Window *s_window;
-static Layer *s_canvas_layer;
+static Layer *s_background_layer;
+static Layer *s_body_layers[MAX_SOFT_BODIES];
 static SoftBody s_soft_bodies[MAX_SOFT_BODIES];
 static int s_soft_body_count = 0;
 static AppTimer *s_physics_timer = NULL;
 static bool s_physics_running = false;
 static GRect s_bounds;
+static int s_display_hour = 0;
+static int s_display_minute = 0;
 
-// Shape definitions (copied from objects.h since they're static)
-static const GPoint square_points[] = {
-    {0, 0}, {50, 0}, {50, 50}, {0, 50}
-};
-static const GPoint triangle_points[] = {
-    {25, 0}, {0, 50}, {50, 50}
-};
-static const GPoint hexagon_points[] = {
-    {25, 0}, {50, 12}, {50, 37}, {25, 50}, {0, 37}, {0, 12}
-};
-// 80px tall number '2' as an outline polygon (clockwise)
-// Coordinates chosen to look like a '2' digit, top left at (10,10), height ~80px.
-static const GPoint blob_points[] = {
-    {15, 15},   // Top left curve
-    {55, 15},   // Top right
-    {65, 25},   // Curve right
-    {55, 45},   // Upper belly
-    {25, 60},   // Middle transition (curl down)
-    {15, 85},   // Bottom left knee
-    {25, 95},   // Bottom
-    {55, 95},   // Bottom right
-    {65, 85},   // Bottom right curve
-    {57, 80},   // Curl up into base
-    {35, 70},   // Inside base curve
-    {55, 55},   // Pinch middle
-    {65, 40},   // Top tip
-    {65, 25},   // Top right
-    {15, 15}    // Closing point (matches first for polygon)
-};
+// Track which digits are currently displayed and their body indices
+typedef enum {
+    DIGIT_POS_HOUR_TENS = 0,
+    DIGIT_POS_HOUR_UNITS = 1,
+    DIGIT_POS_MINUTE_TENS = 2,
+    DIGIT_POS_MINUTE_UNITS = 3
+} DigitPosition;
 
-// 5-pointed star shape with manually positioned points for optimal physics
-static const GPoint star_points[] = {
-    {25, 0},    // Top point
-    {32, 18},   // Top right inner
-    {50, 18},   // Right point
-    {37, 30},   // Bottom right inner
-    {40, 50},   // Bottom right point
-    {25, 38},   // Bottom inner
-    {10, 50},   // Bottom left point
-    {13, 30},   // Bottom left inner
-    {0, 18},    // Left point
-    {18, 18}    // Top left inner
+static struct {
+    int digit_value[4];  // Current digit value for each position (-1 if not set)
+    int body_idx[4];      // Body index for each position (-1 if not set)
+} s_display_digits = {
+    .digit_value = {-1, -1, -1, -1},
+    .body_idx = {-1, -1, -1, -1}
 };
 
 typedef struct {
@@ -61,29 +42,108 @@ typedef struct {
     int count;
 } ShapeDef;
 
+// All numeral shapes from numerals.h
 static const ShapeDef s_shapes[] = {
-    {square_points, sizeof(square_points) / sizeof(square_points[0])},
-    {triangle_points, sizeof(triangle_points) / sizeof(triangle_points[0])},
-    {hexagon_points, sizeof(hexagon_points) / sizeof(hexagon_points[0])},
-    {blob_points, sizeof(blob_points) / sizeof(blob_points[0])},
-    {star_points, sizeof(star_points) / sizeof(star_points[0])}
+    {zero_points, ZERO_POINT_COUNT},
+    {one_points, ONE_POINT_COUNT},
+    {two_points, TWO_POINT_COUNT},
+    {three_points, THREE_POINT_COUNT},
+    {four_points, FOUR_POINT_COUNT},
+    {five_points, FIVE_POINT_COUNT},
+    {six_points, SIX_POINT_COUNT},
+    {seven_points, SEVEN_POINT_COUNT},
+    {eight_points, EIGHT_POINT_COUNT},
+    {nine_points, NINE_POINT_COUNT}
 };
 #define SHAPE_COUNT (sizeof(s_shapes) / sizeof(s_shapes[0]))
 
-static void prv_add_random_shape(void) {
+// All object shapes from objects.h
+static const ShapeDef s_object_shapes[] = {
+    {shape_zero_points, SHAPE_ZERO_POINT_COUNT},
+    {shape_one_points, SHAPE_ONE_POINT_COUNT},
+    {shape_two_points, SHAPE_TWO_POINT_COUNT},
+    {shape_three_points, SHAPE_THREE_POINT_COUNT},
+    {shape_four_points, SHAPE_FOUR_POINT_COUNT},
+    {shape_five_points, SHAPE_FIVE_POINT_COUNT},
+    {shape_six_points, SHAPE_SIX_POINT_COUNT},
+    {shape_seven_points, SHAPE_SEVEN_POINT_COUNT},
+    {shape_eight_points, SHAPE_EIGHT_POINT_COUNT},
+    {shape_nine_points, SHAPE_NINE_POINT_COUNT}
+};
+#define OBJECT_SHAPE_COUNT (sizeof(s_object_shapes) / sizeof(s_object_shapes[0]))
+
+static GColor get_numeral_color(int digit) {
+    switch (digit) {
+        case 0:  return GColorElectricBlue;
+        case 1:  return GColorYellow;
+        case 2:  return GColorOrange;
+        case 3:  return GColorPictonBlue;
+        case 4:  return GColorGreen;
+        case 5:  return GColorRichBrilliantLavender;
+        case 6:  return GColorPastelYellow;
+        case 7:  return GColorFolly;
+        case 8:  return GColorMediumAquamarine;
+        case 9:  return GColorLavenderIndigo;
+        default: return GColorWhite;
+    }
+}
+
+// Structure to pass quadrant information to timer callback
+typedef struct {
+    int shape_idx;
+    GPoint position;
+} QuadrantData;
+
+// Per-body layer update proc - draws a single body
+static void prv_body_layer_update_proc(Layer *layer, GContext *ctx) {
+    // Find body index by searching through body layers array
+    int body_idx = -1;
+    for (int i = 0; i < s_soft_body_count; i++) {
+        if (s_body_layers[i] == layer) {
+            body_idx = i;
+            break;
+        }
+    }
+    
+    if (body_idx < 0 || body_idx >= s_soft_body_count) {
+        return;
+    }
+    
+    SoftBody *body = &s_soft_bodies[body_idx];
+    
+    // Draw the body (layer is transparent by default)
+    soft_body_draw(ctx, body);
+#if DEBUG_DRAW_ELEMENTS
+    // Draw frame outline on top
+    soft_body_draw_frame(ctx, body);
+#endif
+}
+
+static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) {
     if (s_soft_body_count >= MAX_SOFT_BODIES) {
         return; // Max bodies reached
     }
     
-    // Pick random shape
-    int shape_idx = rand() % SHAPE_COUNT;
-    const ShapeDef *shape = &s_shapes[shape_idx];
+    // Calculate shape bounding box to center it properly
+    int min_x = shape->points[0].x;
+    int max_x = shape->points[0].x;
+    int min_y = shape->points[0].y;
+    int max_y = shape->points[0].y;
     
-    // Random position (keep shape within bounds)
-    int max_x = s_bounds.size.w - 50;
-    int max_y = s_bounds.size.h / 2 - 50;
-    int offset_x = (rand() % (max_x > 0 ? max_x : s_bounds.size.w)) + 10;
-    int offset_y = (rand() % (max_y > 0 ? max_y : s_bounds.size.h)) + 10;
+    for (int i = 1; i < shape->count; i++) {
+        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
+        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
+        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
+        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
+    }
+    
+    // Calculate shape center
+    int shape_center_x = (min_x + max_x) / 2;
+    int shape_center_y = (min_y + max_y) / 2;
+    
+    // Calculate offset to place shape center at desired position
+    int offset_x = center_pos.x - shape_center_x;
+    int offset_y = center_pos.y - shape_center_y;
     
     // Create GPoint array with offset
     GPoint *positions = (GPoint *)malloc(sizeof(GPoint) * shape->count);
@@ -94,15 +154,129 @@ static void prv_add_random_shape(void) {
         );
     }
     
-    // Initialize soft body
-    SoftBody *body = &s_soft_bodies[s_soft_body_count];
-    soft_body_init(body, positions, shape->count, 1, SPRING_STIFFNESS_DEFAULT, SPRING_DAMPING_DEFAULT);
+    // Initialize soft body with layout scaling options
+    int body_idx = s_soft_body_count;
+    SoftBody *body = &s_soft_bodies[body_idx];
+    const Layout *layout = get_layout();
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
+                   layout->start_scale, layout->target_scale, layout->scale_speed);
+    
+    // Set digit value and fill color based on shape index
+    // Find which digit this shape represents by searching s_shapes array
+    int digit_value = -1;
+    for (size_t i = 0; i < SHAPE_COUNT; i++) {
+        if (&s_shapes[i] == shape) {
+            digit_value = (int)i;
+            break;
+        }
+    }
+    body->digit_value = digit_value;
+    body->fill_color = get_numeral_color(digit_value);
+    
+    // Create a layer for this body
+    Layer *window_layer = window_get_root_layer(s_window);
+    Layer *body_layer = layer_create(s_bounds);
+    layer_set_update_proc(body_layer, prv_body_layer_update_proc);
+    layer_add_child(window_layer, body_layer);
+    s_body_layers[body_idx] = body_layer;
+    
     s_soft_body_count++;
     
     free(positions);
     
     // Mark layer dirty to show the new shape
-    layer_mark_dirty(s_canvas_layer);
+    layer_mark_dirty(body_layer);
+}
+
+// Replace an existing body with a new shape (for updating digits)
+static void prv_replace_body_shape(int body_idx, const ShapeDef *shape, GPoint center_pos) {
+    if (body_idx < 0 || body_idx >= s_soft_body_count) {
+        return;
+    }
+    
+    SoftBody *body = &s_soft_bodies[body_idx];
+    
+    // Calculate shape bounding box to center it properly
+    int min_x = shape->points[0].x;
+    int max_x = shape->points[0].x;
+    int min_y = shape->points[0].y;
+    int max_y = shape->points[0].y;
+    
+    for (int i = 1; i < shape->count; i++) {
+        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
+        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
+        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
+        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
+    }
+    
+    // Calculate shape center
+    int shape_center_x = (min_x + max_x) / 2;
+    int shape_center_y = (min_y + max_y) / 2;
+    
+    // Calculate offset to place shape center at desired position
+    int offset_x = center_pos.x - shape_center_x;
+    int offset_y = center_pos.y - shape_center_y;
+    
+    // Create GPoint array with offset
+    GPoint *positions = (GPoint *)malloc(sizeof(GPoint) * shape->count);
+    for (int i = 0; i < shape->count; i++) {
+        positions[i] = GPoint(
+            shape->points[i].x + offset_x,
+            shape->points[i].y + offset_y
+        );
+    }
+    
+    // Destroy old body
+    soft_body_destroy(body);
+    
+    // Initialize new soft body with layout scaling options
+    const Layout *layout = get_layout();
+    soft_body_init(body, positions, shape->count, 1, FRAME_SPRING_DAMPING_DEFAULT, 
+                   layout->start_scale, layout->target_scale, layout->scale_speed);
+    
+    // Set digit value and fill color based on shape index
+    // Find which digit this shape represents by searching s_shapes array
+    int digit_value = -1;
+    for (size_t i = 0; i < SHAPE_COUNT; i++) {
+        if (&s_shapes[i] == shape) {
+            digit_value = (int)i;
+            break;
+        }
+    }
+    body->digit_value = digit_value;
+    body->fill_color = get_numeral_color(digit_value);
+    
+    free(positions);
+    
+    // Mark layer dirty to show the updated shape
+    if (s_body_layers[body_idx]) {
+        layer_mark_dirty(s_body_layers[body_idx]);
+    }
+}
+
+// Update a single digit at a specific position
+static void prv_update_digit(DigitPosition pos, int new_digit_value) {
+    // Check if digit has changed
+    if (s_display_digits.digit_value[pos] == new_digit_value) {
+        return; // No change needed
+    }
+    
+    // Get position from layout
+    const Layout *layout = get_layout();
+    GPoint position = layout->digit_positions[pos];
+    
+    // If body already exists, replace it; otherwise create new one
+    if (s_display_digits.body_idx[pos] >= 0 && s_display_digits.body_idx[pos] < s_soft_body_count) {
+        // Replace existing body
+        prv_replace_body_shape(s_display_digits.body_idx[pos], &s_shapes[new_digit_value], position);
+    } else {
+        // Create new body directly (no timer delay for updates)
+        prv_add_shape_at_position(&s_shapes[new_digit_value], position);
+        s_display_digits.body_idx[pos] = s_soft_body_count - 1;
+    }
+    
+    // Update tracked digit value
+    s_display_digits.digit_value[pos] = new_digit_value;
 }
 
 static void prv_physics_timer_callback(void *data) {
@@ -111,19 +285,53 @@ static void prv_physics_timer_callback(void *data) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Physics timer callback");
     for (int i = 0; i < s_soft_body_count; i++) {
         SoftBody *body = &s_soft_bodies[i];
+        bool was_sleeping = body->is_sleeping;
 
-        // Update physics (includes gravity, spring forces, and position updates)
-        soft_body_update(body, GRAVITY_DEFAULT, 0.016f); // ~16ms timestep
+        // Animate frame scale from start_scale to target_scale (separate x and y)
+        if (body->frame && 
+            (body->frame->current_scale.x != body->target_scale.x || 
+             body->frame->current_scale.y != body->target_scale.y)) {
+            // Wake the softbody if it's sleeping (scaling will disturb it)
+            if (body->is_sleeping) {
+                soft_body_wake(body);
+            }
 
-        // Check boundary collisions
-        collision_check_bounds(body, s_bounds);
+            // Move towards target scale using configurable speed (separate for x and y)
+            float scale_diff_x = body->target_scale.x - body->frame->current_scale.x;
+            float scale_diff_y = body->target_scale.y - body->frame->current_scale.y;
+            float scale_step_x = (scale_diff_x > 0 ? body->scale_speed.x : -body->scale_speed.x);
+            float scale_step_y = (scale_diff_y > 0 ? body->scale_speed.y : -body->scale_speed.y);
+            float new_scale_x = body->frame->current_scale.x + scale_step_x;
+            float new_scale_y = body->frame->current_scale.y + scale_step_y;
+
+            // Clamp to target scale to prevent overshooting (separate for x and y)
+            if ((scale_diff_x > 0 && new_scale_x > body->target_scale.x) ||
+                (scale_diff_x < 0 && new_scale_x < body->target_scale.x)) {
+                new_scale_x = body->target_scale.x;
+            }
+            if ((scale_diff_y > 0 && new_scale_y > body->target_scale.y) ||
+                (scale_diff_y < 0 && new_scale_y < body->target_scale.y)) {
+                new_scale_y = body->target_scale.y;
+            }
+
+            Scale2D new_scale = {.x = new_scale_x, .y = new_scale_y};
+            shape_frame_set_scale(body->frame, new_scale);
+        }
+
+        // Update physics only for non-sleeping softbodies
+        if (!body->is_sleeping) {
+            soft_body_update(body, 0.016f); // ~16ms timestep
+        }
+        
+        // Mark layer dirty if body is not sleeping, or if it just went to sleep
+        // (to ensure final position is drawn when transitioning to sleep)
+        bool just_went_to_sleep = was_sleeping == false && body->is_sleeping == true;
+        if (!body->is_sleeping || just_went_to_sleep) {
+            if (s_body_layers[i]) {
+                layer_mark_dirty(s_body_layers[i]);
+            }
+        }
     }
-
-    // Check collisions between all soft bodies
-    collision_check_all_bodies(s_soft_bodies, s_soft_body_count);
-
-    // Mark layer dirty to trigger redraw
-    layer_mark_dirty(s_canvas_layer);
 
     // Schedule next physics update (repeating timer pattern)
     if (s_physics_running) {
@@ -131,49 +339,180 @@ static void prv_physics_timer_callback(void *data) {
     }
 }
 
-static void prv_canvas_update_proc(Layer *layer, GContext *ctx) {
-    // Clear background
-    graphics_context_set_fill_color(ctx, GColorJazzberryJam);
+// Draw grid lines on the background
+static void prv_draw_grid(GContext *ctx, GRect bounds) {
+    const Layout *layout = get_layout();
+    if (!layout->grid_enabled) {
+        return;
+    }
+    
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorPictonBlue, GColorBlack));
+    graphics_context_set_stroke_width(ctx, 1);
+    
+    // Draw vertical lines (centered)
+    for (int x = layout->grid_offset_x; x <= bounds.size.w; x += layout->grid_spacing_x) {
+        graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, bounds.size.h));
+    }
+    
+    // Draw horizontal lines (centered)
+    for (int y = layout->grid_offset_y; y <= bounds.size.h; y += layout->grid_spacing_y) {
+        graphics_draw_line(ctx, GPoint(0, y), GPoint(bounds.size.w, y));
+    }
+}
+
+// Background layer update proc - draws the background and grid
+static void prv_background_update_proc(Layer *layer, GContext *ctx) {
+    // Draw white background
+    graphics_context_set_fill_color(ctx, GColorWhite);
     graphics_fill_rect(ctx, s_bounds, 0, GCornerNone);
+    
+    // Draw grid lines on top
+    prv_draw_grid(ctx, s_bounds);
+    
+    // Draw widgets (battery bar, date, day of week)
+    widgets_draw(ctx);
+}
 
-    // Draw all soft bodies with collision visualization
-    for (int i = 0; i < s_soft_body_count; i++) {
-        // Create array of other bodies for collision checking
-        SoftBody *other_bodies[MAX_SOFT_BODIES - 1];
-        int other_count = 0;
+// Timer callback to add a shape at a specific quadrant
+// Note: Currently unused, kept for potential future use with delayed animations
+__attribute__((unused)) static void prv_add_shape_timer_callback(void *data) {
+    QuadrantData *quad_data = (QuadrantData *)data;
+    
+    // Add the shape at the specified position
+    prv_add_shape_at_position(&s_shapes[quad_data->shape_idx], quad_data->position);
+    
+    // Free the allocated memory
+    free(quad_data);
+}
 
-        // Collect all bodies except the current one
-        for (int j = 0; j < s_soft_body_count; j++) {
-            if (j != i) {
-                other_bodies[other_count++] = &s_soft_bodies[j];
-            }
-        }
+// Convert 24-hour format to 12-hour format
+static int prv_convert_to_12h(int hour_24h) {
+    if (hour_24h == 0) {
+        return 12;  // Midnight -> 12
+    } else if (hour_24h > 12) {
+        return hour_24h - 12;  // 13-23 -> 1-11
+    } else {
+        return hour_24h;  // 1-12 -> 1-12
+    }
+}
 
-        // Draw with collision checking
-        soft_body_draw_with_collisions(ctx, &s_soft_bodies[i], other_bodies, other_count);
+// Update the 4 numerals to display the given time (HH:MM format)
+// hour should be in 24-hour format; it will be converted based on user preference
+static void prv_update_time_display(int hour_24h, int minute) {
+    // Convert hour based on user's 12/24 hour preference
+    int display_hour;
+    if (clock_is_24h_style()) {
+        display_hour = hour_24h;  // Use 24-hour format (0-23)
+    } else {
+        display_hour = prv_convert_to_12h(hour_24h);  // Convert to 12-hour format (1-12)
+    }
+    
+    // Extract digits: HH:MM -> hour_tens, hour_units, minute_tens, minute_units
+    int hour_tens = display_hour / 10;
+    int hour_units = display_hour % 10;
+    int minute_tens = minute / 10;
+    int minute_units = minute % 10;
+    
+    // Update only changed digits
+    prv_update_digit(DIGIT_POS_HOUR_TENS, hour_tens);
+    prv_update_digit(DIGIT_POS_HOUR_UNITS, hour_units);
+    prv_update_digit(DIGIT_POS_MINUTE_TENS, minute_tens);
+    prv_update_digit(DIGIT_POS_MINUTE_UNITS, minute_units);
+}
+
+// Increment hours by 1, wrapping at 24
+static void prv_increment_hour(void) {
+    int old_hour = s_display_hour;
+    s_display_hour++;
+    
+    // Handle hour overflow (wrap 24 -> 0, since we store in 24h format internally)
+    if (s_display_hour >= 24) {
+        s_display_hour = 0;
+    }
+    
+    // Convert to display format for comparison
+    int old_display_hour = clock_is_24h_style() ? old_hour : prv_convert_to_12h(old_hour);
+    int new_display_hour = clock_is_24h_style() ? s_display_hour : prv_convert_to_12h(s_display_hour);
+    
+    int old_hour_tens = old_display_hour / 10;
+    int old_hour_units = old_display_hour % 10;
+    int new_hour_tens = new_display_hour / 10;
+    int new_hour_units = new_display_hour % 10;
+    
+    // Update hour units if changed
+    if (new_hour_units != old_hour_units) {
+        prv_update_digit(DIGIT_POS_HOUR_UNITS, new_hour_units);
+    }
+    
+    // Update hour tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_hour_tens != old_hour_tens) {
+        prv_update_digit(DIGIT_POS_HOUR_TENS, new_hour_tens);
+    }
+}
+
+// Increment minutes by 1, cascading to hours if needed
+static void prv_increment_minute(void) {
+    int old_minute = s_display_minute;
+    s_display_minute++;
+    
+    // Handle minute overflow (wrap to next hour)
+    if (s_display_minute >= 60) {
+        s_display_minute = 0;
+        prv_increment_hour();  // This will update hour digits if needed
+    }
+    
+    // Update only changed minute digits
+    int old_minute_tens = old_minute / 10;
+    int old_minute_units = old_minute % 10;
+    int new_minute_tens = s_display_minute / 10;
+    int new_minute_units = s_display_minute % 10;
+    
+    // Update minute units if changed
+    if (new_minute_units != old_minute_units) {
+        prv_update_digit(DIGIT_POS_MINUTE_UNITS, new_minute_units);
+    }
+    
+    // Update minute tens if changed (happens when wrapping or crossing 10s boundary)
+    if (new_minute_tens != old_minute_tens) {
+        prv_update_digit(DIGIT_POS_MINUTE_TENS, new_minute_tens);
     }
 }
 
 static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    prv_add_random_shape();
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    
+    // Update displayed time
+    s_display_hour = tick_time->tm_hour;
+    s_display_minute = tick_time->tm_min;
+    
+    // Update the 4 numerals to show current time
+    prv_update_time_display(s_display_hour, s_display_minute);
 }
 
 static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Clear all bodies
+    // Clear all bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
+        if (s_body_layers[i]) {
+            layer_remove_from_parent(s_body_layers[i]);
+            layer_destroy(s_body_layers[i]);
+            s_body_layers[i] = NULL;
+        }
     }
     s_soft_body_count = 0;
-    layer_mark_dirty(s_canvas_layer);
+    
+    // Reset digit tracking
+    for (int i = 0; i < 4; i++) {
+        s_display_digits.digit_value[i] = -1;
+        s_display_digits.body_idx[i] = -1;
+    }
 }
 
 static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Remove last body
-    if (s_soft_body_count > 0) {
-        s_soft_body_count--;
-        soft_body_destroy(&s_soft_bodies[s_soft_body_count]);
-        layer_mark_dirty(s_canvas_layer);
-    }
+    // Increment minutes (will update only changed digits, cascading to hours if needed)
+    prv_increment_minute();
 }
 
 static void prv_click_config_provider(void *context) {
@@ -186,16 +525,24 @@ static void prv_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     s_bounds = layer_get_bounds(window_layer);
     
-    // Create canvas layer for physics rendering
-    s_canvas_layer = layer_create(s_bounds);
-    layer_set_update_proc(s_canvas_layer, prv_canvas_update_proc);
-    layer_add_child(window_layer, s_canvas_layer);
+    // Initialize layout with screen bounds (singleton)
+    set_layout(s_bounds);
+    
+    // Initialize body layers array
+    for (int i = 0; i < MAX_SOFT_BODIES; i++) {
+        s_body_layers[i] = NULL;
+    }
+    
+    // Create background layer
+    s_background_layer = layer_create(s_bounds);
+    layer_set_update_proc(s_background_layer, prv_background_update_proc);
+    layer_add_child(window_layer, s_background_layer);
     
     // Initialize random seed (use a simple seed)
     //srand(42);
     
-    // Mark layer dirty for initial draw
-    layer_mark_dirty(s_canvas_layer);
+    // Mark background layer dirty for initial draw
+    layer_mark_dirty(s_background_layer);
     
     // Start physics timer (repeating timer pattern)
     s_physics_running = true;
@@ -210,12 +557,21 @@ static void prv_window_unload(Window *window) {
         s_physics_timer = NULL;
     }
     
-    // Clean up all soft bodies
+    // Clean up all soft bodies and their layers
     for (int i = 0; i < s_soft_body_count; i++) {
         soft_body_destroy(&s_soft_bodies[i]);
+        if (s_body_layers[i]) {
+            layer_remove_from_parent(s_body_layers[i]);
+            layer_destroy(s_body_layers[i]);
+            s_body_layers[i] = NULL;
+        }
     }
     
-    layer_destroy(s_canvas_layer);
+    // Clean up background layer
+    if (s_background_layer) {
+        layer_destroy(s_background_layer);
+        s_background_layer = NULL;
+    }
 }
 
 static void prv_init(void) {

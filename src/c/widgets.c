@@ -1,0 +1,258 @@
+#include "widgets.h"
+#include "layout.h"
+#include <time.h>
+
+// Day of week abbreviations (2 letters)
+static const char* s_day_abbreviations[] = {
+    "SU",  // Sunday
+    "MO",  // Monday
+    "TU",  // Tuesday
+    "WE",  // Wednesday
+    "TH",  // Thursday
+    "FR",  // Friday
+    "SA"   // Saturday
+};
+
+void widgets_draw_battery_bar(GContext *ctx) {
+    const Layout *layout = get_layout();
+    GRect bounds = layout->battery_bar_bounds;
+    
+    // Get battery state
+    BatteryChargeState battery_state = battery_state_service_peek();
+    uint8_t battery_percent = battery_state.charge_percent;
+    
+    // Calculate the main bar width - shrinks from full width to 0
+    // Account for outline (2px on each side) and padding
+    int full_width = bounds.size.w;
+    int main_bar_width = (full_width * battery_percent) / 100;
+    
+    int base_x = bounds.origin.x + BATTERY_BAR_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
+    int base_y = bounds.origin.y + BATTERY_BAR_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
+    int bar_height = bounds.size.h;
+    
+    // Calculate segment widths - each segment represents 25% of the full width
+    int segment_width = full_width / 4;
+    int segment_75_100_width = 0;
+    int segment_50_75_width = 0;
+    int segment_25_50_width = 0;
+    int segment_0_25_width = 0;
+    
+    // Calculate segment widths based on battery percentage within their ranges
+    // Segments fill proportionally within their 25% range and are clamped by main bar width
+    // Lower segments are always drawn at full width when battery is above their range
+    if (main_bar_width > 0) {
+        // 75-100% segment: fills proportionally from 75% to 100%
+        if (battery_percent > 75) {
+            int segment_start_x = segment_width * 3;
+            segment_75_100_width = (segment_width * (battery_percent - 75)) / 25;
+            // Clamp to segment width and ensure it doesn't extend beyond main bar
+            if (segment_75_100_width > segment_width) {
+                segment_75_100_width = segment_width;
+            }
+            if (segment_start_x + segment_75_100_width > main_bar_width) {
+                segment_75_100_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
+            }
+        }
+        
+        // 50-75% segment: fills proportionally from 50% to 75%, or full width if battery > 75%
+        if (battery_percent > 50) {
+            int segment_start_x = segment_width * 2;
+            if (battery_percent > 75) {
+                // Battery is above this range, draw at full width
+                segment_50_75_width = segment_width;
+            } else {
+                // Battery is in this range, fill proportionally
+                segment_50_75_width = (segment_width * (battery_percent - 50)) / 25;
+            }
+            // Clamp to segment width and ensure it doesn't extend beyond main bar
+            if (segment_50_75_width > segment_width) {
+                segment_50_75_width = segment_width;
+            }
+            if (segment_start_x + segment_50_75_width > main_bar_width) {
+                segment_50_75_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
+            }
+        }
+        
+        // 25-50% segment: fills proportionally from 25% to 50%, or full width if battery > 50%
+        if (battery_percent > 25) {
+            int segment_start_x = segment_width;
+            if (battery_percent > 50) {
+                // Battery is above this range, draw at full width
+                segment_25_50_width = segment_width;
+            } else {
+                // Battery is in this range, fill proportionally
+                segment_25_50_width = (segment_width * (battery_percent - 25)) / 25;
+            }
+            // Clamp to segment width and ensure it doesn't extend beyond main bar
+            if (segment_25_50_width > segment_width) {
+                segment_25_50_width = segment_width;
+            }
+            if (segment_start_x + segment_25_50_width > main_bar_width) {
+                segment_25_50_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
+            }
+        }
+        
+        // 0-25% segment: fills proportionally from 0% to 25%, or full width if battery > 25%
+        if (battery_percent > 0) {
+            int segment_start_x = 0;
+            if (battery_percent > 25) {
+                // Battery is above this range, draw at full width
+                segment_0_25_width = segment_width;
+            } else {
+                // Battery is in this range, fill proportionally
+                segment_0_25_width = (segment_width * battery_percent) / 25;
+            }
+            // Clamp to segment width and ensure it doesn't extend beyond main bar
+            if (segment_0_25_width > segment_width) {
+                segment_0_25_width = segment_width;
+            }
+            if (segment_start_x + segment_0_25_width > main_bar_width) {
+                segment_0_25_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
+            }
+        }
+    }
+    
+    // Draw main outlined filled rectangle (shrinks from full width to 0)
+    // Draw this FIRST (bottom layer) so segments appear on top
+    if (main_bar_width > 0) {
+        // Draw black background rectangle to emulate stroke (bottommost layer)
+        // This extends BATTERY_BAR_OUTLINE_WIDTH pixels on all sides
+        GRect stroke_background = GRect(
+            base_x - BATTERY_BAR_OUTLINE_WIDTH,
+            base_y - BATTERY_BAR_OUTLINE_WIDTH,
+            main_bar_width + (BATTERY_BAR_OUTLINE_WIDTH * 2),
+            bar_height + (BATTERY_BAR_OUTLINE_WIDTH * 2)
+        );
+        graphics_context_set_fill_color(ctx, GColorBlack);
+        graphics_fill_rect(ctx, stroke_background, 0, GCornerNone);
+        
+        // Draw segment rectangles (filled, no outline) on top of black background
+        // Colors from highest to lowest: Yellow, ChromeYellow, Orange, Red
+        // 75-100% segment (rightmost quarter) - Yellow
+        if (segment_75_100_width > 0) {
+            GRect seg_75_100 = GRect(
+                base_x + segment_width * 3,
+                base_y,
+                segment_75_100_width,
+                bar_height
+            );
+            graphics_context_set_fill_color(ctx, GColorYellow);
+            graphics_fill_rect(ctx, seg_75_100, 0, GCornerNone);
+        }
+        
+        // 50-75% segment (third quarter) - ChromeYellow
+        if (segment_50_75_width > 0) {
+            GRect seg_50_75 = GRect(
+                base_x + segment_width * 2,
+                base_y,
+                segment_50_75_width,
+                bar_height
+            );
+            graphics_context_set_fill_color(ctx, GColorChromeYellow);
+            graphics_fill_rect(ctx, seg_50_75, 0, GCornerNone);
+        }
+        
+        // 25-50% segment (second quarter) - Orange
+        if (segment_25_50_width > 0) {
+            GRect seg_25_50 = GRect(
+                base_x + segment_width,
+                base_y,
+                segment_25_50_width,
+                bar_height
+            );
+            graphics_context_set_fill_color(ctx, GColorOrange);
+            graphics_fill_rect(ctx, seg_25_50, 0, GCornerNone);
+        }
+        
+        // 0-25% segment (leftmost quarter) - Red
+        if (segment_0_25_width > 0) {
+            GRect seg_0_25 = GRect(
+                base_x,
+                base_y,
+                segment_0_25_width,
+                bar_height
+            );
+            graphics_context_set_fill_color(ctx, GColorRed);
+            graphics_fill_rect(ctx, seg_0_25, 0, GCornerNone);
+        }
+    } else {
+        // Draw empty outline if battery is at 0% using fill_rect
+        GRect empty_stroke = GRect(
+            base_x - BATTERY_BAR_OUTLINE_WIDTH,
+            base_y - BATTERY_BAR_OUTLINE_WIDTH,
+            BATTERY_BAR_OUTLINE_WIDTH * 2,
+            bar_height + (BATTERY_BAR_OUTLINE_WIDTH * 2)
+        );
+        graphics_context_set_fill_color(ctx, GColorBlack);
+        graphics_fill_rect(ctx, empty_stroke, 0, GCornerNone);
+    }
+}
+
+void widgets_draw_date(GContext *ctx) {
+    const Layout *layout = get_layout();
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    
+    // Format date as mm.dd
+    static char date_buffer[6];  // "mm.dd\0"
+    snprintf(date_buffer, sizeof(date_buffer), "%02d.%02d", 
+             tick_time->tm_mon + 1, tick_time->tm_mday);
+    
+    // Get font
+    GFont font = fonts_get_system_font(DATE_TEXT_FONT);
+    
+    // Draw text (right-aligned since position is at top-right)
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, date_buffer, font, 
+                       GRect(layout->date_position.x - 40, layout->date_position.y, 50, 20),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentRight,
+                       NULL);
+}
+
+void widgets_draw_day_of_week(GContext *ctx) {
+    const Layout *layout = get_layout();
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    
+    // Get day of week (0 = Sunday, 6 = Saturday)
+    int day_of_week = tick_time->tm_wday;
+    const char* day_text = s_day_abbreviations[day_of_week];
+    
+    // Draw circle outline
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_circle(ctx, layout->dotw_position, DOTW_CIRCLE_RADIUS);
+    
+    // Get font for text
+    GFont font = fonts_get_system_font(DOTW_TEXT_FONT);
+    
+    // Calculate text position to center it in the circle
+    // Approximate text size for centering (2 characters, small font)
+    GSize text_size = graphics_text_layout_get_content_size(day_text, font, 
+                                                             GRect(0, 0, 50, 20),
+                                                             GTextOverflowModeTrailingEllipsis,
+                                                             GTextAlignmentCenter);
+    
+    GPoint text_pos = GPoint(
+        layout->dotw_position.x - text_size.w / 2,
+        layout->dotw_position.y - text_size.h / 2
+    );
+    
+    // Draw text centered in circle
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, day_text, font,
+                       GRect(text_pos.x, text_pos.y, text_size.w + 4, text_size.h + 4),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter,
+                       NULL);
+}
+
+void widgets_draw(GContext *ctx) {
+    widgets_draw_battery_bar(ctx);
+    widgets_draw_date(ctx);
+    widgets_draw_day_of_week(ctx);
+}
+
