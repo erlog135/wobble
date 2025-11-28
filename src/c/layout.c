@@ -13,10 +13,10 @@ void set_layout(GRect bounds) {
     int numeral_area_x = NUMERAL_X_PADDING;
     int numeral_area_w = bounds.size.w - NUMERAL_X_PADDING * 2;
     int numeral_area_y = WIDGET_BAR_HEIGHT;
-    int numeral_area_h = bounds.size.h - WIDGET_BAR_HEIGHT;
+    int numeral_area_h = bounds.size.h - WIDGET_BAR_HEIGHT - NUMERAL_BOTTOM_PADDING; // Subtract bottom padding
 
     // Calculate quadrant layout properties within numeral area,
-    // but reserve WIDGET_BAR_HEIGHT at the top for widgets.
+    // but reserve WIDGET_BAR_HEIGHT at the top for widgets and NUMERAL_BOTTOM_PADDING at the bottom.
     layout->quad_center_x = numeral_area_x + numeral_area_w / 4;
     layout->quad_center_y = numeral_area_y + numeral_area_h / 4;
     layout->quad_width = numeral_area_w / 2;
@@ -50,13 +50,13 @@ void set_layout(GRect bounds) {
     layout->grid_offset_y = (bounds.size.h % layout->grid_spacing_y) / 2;
 
     //battery bar is at the padded top left, taking up (up to) 1/3 of the screen width
-    layout->battery_bar_bounds = GRect(2, 2, bounds.size.w / 3, WIDGET_BAR_HEIGHT);
+    layout->battery_bar_bounds = GRect(EDGE_PADDING, EDGE_PADDING, bounds.size.w /3, WIDGET_BAR_HEIGHT);
 
     //date is at the padded top right
-    layout->date_position = GPoint(bounds.size.w - EDGE_PADDING - WIDGET_BAR_HEIGHT - DOTW_CIRCLE_RADIUS*2, EDGE_PADDING);
+    layout->date_position = GPoint(bounds.size.w - EDGE_PADDING - DOTW_CIRCLE_RADIUS*4, EDGE_PADDING - 2);
 
     //day of the week is at the padded top right
-    layout->dotw_position = GPoint(bounds.size.w - DOTW_CIRCLE_RADIUS - EDGE_PADDING, EDGE_PADDING + DOTW_CIRCLE_RADIUS);
+    layout->dotw_position = GPoint(bounds.size.w - DOTW_CIRCLE_RADIUS - EDGE_PADDING - WIDGET_OUTLINE_WIDTH, EDGE_PADDING + DOTW_CIRCLE_RADIUS + WIDGET_OUTLINE_WIDTH);
 }
 
 const Layout* get_layout(void) {

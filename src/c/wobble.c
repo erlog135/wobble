@@ -9,6 +9,8 @@
 #define MAX_SOFT_BODIES 10
 #define PHYSICS_TIMER_MS 33  // ~30 FPS
 #define SHAPE_APPEAR_DELAY_MS 50  // Delay between shapes appearing (milliseconds)
+#define INITIAL_NUMERAL_DELAY_MS 500  // Delay before showing numerals on first launch (milliseconds)
+#define SHAPE_BASE_SIZE 80  // Base size of shapes (80x80px) - shapes are centered at (40, 40)
 
 static Window *s_window;
 static Layer *s_background_layer;
@@ -16,6 +18,7 @@ static Layer *s_body_layers[MAX_SOFT_BODIES];
 static SoftBody s_soft_bodies[MAX_SOFT_BODIES];
 static int s_soft_body_count = 0;
 static AppTimer *s_physics_timer = NULL;
+static AppTimer *s_initial_delay_timer = NULL;
 static bool s_physics_running = false;
 static GRect s_bounds;
 static int s_display_hour = 0;
@@ -94,6 +97,10 @@ typedef struct {
     GPoint position;
 } QuadrantData;
 
+// Forward declarations
+static void prv_physics_timer_callback(void *data);
+static void prv_restart_physics_timer_if_needed(void);
+
 // Per-body layer update proc - draws a single body
 static void prv_body_layer_update_proc(Layer *layer, GContext *ctx) {
     // Find body index by searching through body layers array
@@ -124,24 +131,10 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
         return; // Max bodies reached
     }
     
-    // Calculate shape bounding box to center it properly
-    int min_x = shape->points[0].x;
-    int max_x = shape->points[0].x;
-    int min_y = shape->points[0].y;
-    int max_y = shape->points[0].y;
-    
-    for (int i = 1; i < shape->count; i++) {
-        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
-        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
-        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
-        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
-    }
-    
-    // Calculate shape center
-    int shape_center_x = (min_x + max_x) / 2;
-    int shape_center_y = (min_y + max_y) / 2;
-    
-    // Calculate offset to place shape center at desired position
+    // Optimization: shapes are always 80x80px centered at (40, 40)
+    // No need to calculate bounding box - use fixed offset
+    const int shape_center_x = SHAPE_BASE_SIZE / 2;  // 40
+    const int shape_center_y = SHAPE_BASE_SIZE / 2;  // 40
     int offset_x = center_pos.x - shape_center_x;
     int offset_y = center_pos.y - shape_center_y;
     
@@ -186,6 +179,9 @@ static void prv_add_shape_at_position(const ShapeDef *shape, GPoint center_pos) 
     
     // Mark layer dirty to show the new shape
     layer_mark_dirty(body_layer);
+    
+    // Restart physics timer if needed (new bodies start awake)
+    prv_restart_physics_timer_if_needed();
 }
 
 // Replace an existing body with a new shape (for updating digits)
@@ -196,24 +192,10 @@ static void prv_replace_body_shape(int body_idx, const ShapeDef *shape, GPoint c
     
     SoftBody *body = &s_soft_bodies[body_idx];
     
-    // Calculate shape bounding box to center it properly
-    int min_x = shape->points[0].x;
-    int max_x = shape->points[0].x;
-    int min_y = shape->points[0].y;
-    int max_y = shape->points[0].y;
-    
-    for (int i = 1; i < shape->count; i++) {
-        if (shape->points[i].x < min_x) min_x = shape->points[i].x;
-        if (shape->points[i].x > max_x) max_x = shape->points[i].x;
-        if (shape->points[i].y < min_y) min_y = shape->points[i].y;
-        if (shape->points[i].y > max_y) max_y = shape->points[i].y;
-    }
-    
-    // Calculate shape center
-    int shape_center_x = (min_x + max_x) / 2;
-    int shape_center_y = (min_y + max_y) / 2;
-    
-    // Calculate offset to place shape center at desired position
+    // Optimization: shapes are always 80x80px centered at (40, 40)
+    // No need to calculate bounding box - use fixed offset
+    const int shape_center_x = SHAPE_BASE_SIZE / 2;  // 40
+    const int shape_center_y = SHAPE_BASE_SIZE / 2;  // 40
     int offset_x = center_pos.x - shape_center_x;
     int offset_y = center_pos.y - shape_center_y;
     
@@ -252,6 +234,9 @@ static void prv_replace_body_shape(int body_idx, const ShapeDef *shape, GPoint c
     if (s_body_layers[body_idx]) {
         layer_mark_dirty(s_body_layers[body_idx]);
     }
+    
+    // Restart physics timer if needed (replaced bodies start awake)
+    prv_restart_physics_timer_if_needed();
 }
 
 // Update a single digit at a specific position
@@ -279,18 +264,33 @@ static void prv_update_digit(DigitPosition pos, int new_digit_value) {
     s_display_digits.digit_value[pos] = new_digit_value;
 }
 
+// Helper function to restart physics timer if needed
+static void prv_restart_physics_timer_if_needed(void) {
+    // Only restart if not already running and we have bodies
+    if (!s_physics_running && s_soft_body_count > 0) {
+        s_physics_running = true;
+        s_physics_timer = app_timer_register(PHYSICS_TIMER_MS, prv_physics_timer_callback, NULL);
+    }
+}
+
 static void prv_physics_timer_callback(void *data) {
     // Update physics for all soft bodies
 
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Physics timer callback");
+    bool has_active_bodies = false;
+    bool has_active_scaling = false;
+    
     for (int i = 0; i < s_soft_body_count; i++) {
         SoftBody *body = &s_soft_bodies[i];
         bool was_sleeping = body->is_sleeping;
 
         // Animate frame scale from start_scale to target_scale (separate x and y)
-        if (body->frame && 
+        bool is_scaling = body->frame && 
             (body->frame->current_scale.x != body->target_scale.x || 
-             body->frame->current_scale.y != body->target_scale.y)) {
+             body->frame->current_scale.y != body->target_scale.y);
+        
+        if (is_scaling) {
+            has_active_scaling = true;  // Keep timer running for scaling animations
             // Wake the softbody if it's sleeping (scaling will disturb it)
             if (body->is_sleeping) {
                 soft_body_wake(body);
@@ -321,6 +321,7 @@ static void prv_physics_timer_callback(void *data) {
         // Update physics only for non-sleeping softbodies
         if (!body->is_sleeping) {
             soft_body_update(body, 0.016f); // ~16ms timestep
+            has_active_bodies = true;  // At least one body is active
         }
         
         // Mark layer dirty if body is not sleeping, or if it just went to sleep
@@ -333,9 +334,14 @@ static void prv_physics_timer_callback(void *data) {
         }
     }
 
-    // Schedule next physics update (repeating timer pattern)
-    if (s_physics_running) {
+    // Optimization: Only schedule next physics update if there are active bodies or scaling
+    // If all bodies are sleeping and no scaling is happening, stop the timer to save CPU
+    if (has_active_bodies || has_active_scaling) {
         s_physics_timer = app_timer_register(PHYSICS_TIMER_MS, prv_physics_timer_callback, NULL);
+    } else {
+        // All bodies are sleeping and no scaling, stop the timer
+        s_physics_running = false;
+        s_physics_timer = NULL;
     }
 }
 
@@ -422,107 +428,26 @@ static void prv_update_time_display(int hour_24h, int minute) {
     prv_update_digit(DIGIT_POS_HOUR_UNITS, hour_units);
     prv_update_digit(DIGIT_POS_MINUTE_TENS, minute_tens);
     prv_update_digit(DIGIT_POS_MINUTE_UNITS, minute_units);
+    
+    // Update stored time values
+    s_display_hour = hour_24h;
+    s_display_minute = minute;
 }
 
-// Increment hours by 1, wrapping at 24
-static void prv_increment_hour(void) {
-    int old_hour = s_display_hour;
-    s_display_hour++;
+// Initial delay timer callback - shows numerals after delay on first launch
+static void prv_initial_delay_callback(void *data) {
+    s_initial_delay_timer = NULL;
     
-    // Handle hour overflow (wrap 24 -> 0, since we store in 24h format internally)
-    if (s_display_hour >= 24) {
-        s_display_hour = 0;
-    }
-    
-    // Convert to display format for comparison
-    int old_display_hour = clock_is_24h_style() ? old_hour : prv_convert_to_12h(old_hour);
-    int new_display_hour = clock_is_24h_style() ? s_display_hour : prv_convert_to_12h(s_display_hour);
-    
-    int old_hour_tens = old_display_hour / 10;
-    int old_hour_units = old_display_hour % 10;
-    int new_hour_tens = new_display_hour / 10;
-    int new_hour_units = new_display_hour % 10;
-    
-    // Update hour units if changed
-    if (new_hour_units != old_hour_units) {
-        prv_update_digit(DIGIT_POS_HOUR_UNITS, new_hour_units);
-    }
-    
-    // Update hour tens if changed (happens when wrapping or crossing 10s boundary)
-    if (new_hour_tens != old_hour_tens) {
-        prv_update_digit(DIGIT_POS_HOUR_TENS, new_hour_tens);
-    }
-}
-
-// Increment minutes by 1, cascading to hours if needed
-static void prv_increment_minute(void) {
-    int old_minute = s_display_minute;
-    s_display_minute++;
-    
-    // Handle minute overflow (wrap to next hour)
-    if (s_display_minute >= 60) {
-        s_display_minute = 0;
-        prv_increment_hour();  // This will update hour digits if needed
-    }
-    
-    // Update only changed minute digits
-    int old_minute_tens = old_minute / 10;
-    int old_minute_units = old_minute % 10;
-    int new_minute_tens = s_display_minute / 10;
-    int new_minute_units = s_display_minute % 10;
-    
-    // Update minute units if changed
-    if (new_minute_units != old_minute_units) {
-        prv_update_digit(DIGIT_POS_MINUTE_UNITS, new_minute_units);
-    }
-    
-    // Update minute tens if changed (happens when wrapping or crossing 10s boundary)
-    if (new_minute_tens != old_minute_tens) {
-        prv_update_digit(DIGIT_POS_MINUTE_TENS, new_minute_tens);
-    }
-}
-
-static void prv_select_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Get current time
+    // Get current time and display it
     time_t temp = time(NULL);
     struct tm *tick_time = localtime(&temp);
-    
+    prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
+}
+
+// Tick timer handler - called every minute
+static void prv_tick_handler(struct tm *tick_time, TimeUnits changed) {
     // Update displayed time
-    s_display_hour = tick_time->tm_hour;
-    s_display_minute = tick_time->tm_min;
-    
-    // Update the 4 numerals to show current time
-    prv_update_time_display(s_display_hour, s_display_minute);
-}
-
-static void prv_up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Clear all bodies and their layers
-    for (int i = 0; i < s_soft_body_count; i++) {
-        soft_body_destroy(&s_soft_bodies[i]);
-        if (s_body_layers[i]) {
-            layer_remove_from_parent(s_body_layers[i]);
-            layer_destroy(s_body_layers[i]);
-            s_body_layers[i] = NULL;
-        }
-    }
-    s_soft_body_count = 0;
-    
-    // Reset digit tracking
-    for (int i = 0; i < 4; i++) {
-        s_display_digits.digit_value[i] = -1;
-        s_display_digits.body_idx[i] = -1;
-    }
-}
-
-static void prv_down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    // Increment minutes (will update only changed digits, cascading to hours if needed)
-    prv_increment_minute();
-}
-
-static void prv_click_config_provider(void *context) {
-    window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click_handler);
-    window_single_click_subscribe(BUTTON_ID_UP, prv_up_click_handler);
-    window_single_click_subscribe(BUTTON_ID_DOWN, prv_down_click_handler);
+    prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
 }
 
 static void prv_window_load(Window *window) {
@@ -548,12 +473,19 @@ static void prv_window_load(Window *window) {
     // Mark background layer dirty for initial draw
     layer_mark_dirty(s_background_layer);
     
-    // Start physics timer (repeating timer pattern)
-    s_physics_running = true;
-    s_physics_timer = app_timer_register(PHYSICS_TIMER_MS, prv_physics_timer_callback, NULL);
+    // Show time on launch after configurable delay
+    s_initial_delay_timer = app_timer_register(INITIAL_NUMERAL_DELAY_MS, prv_initial_delay_callback, NULL);
+    
+    // Physics timer will start automatically when first body is added
 }
 
 static void prv_window_unload(Window *window) {
+    // Cancel initial delay timer if still pending
+    if (s_initial_delay_timer) {
+        app_timer_cancel(s_initial_delay_timer);
+        s_initial_delay_timer = NULL;
+    }
+    
     // Stop physics timer
     s_physics_running = false;
     if (s_physics_timer) {
@@ -580,16 +512,21 @@ static void prv_window_unload(Window *window) {
 
 static void prv_init(void) {
     s_window = window_create();
-    window_set_click_config_provider(s_window, prv_click_config_provider);
     window_set_window_handlers(s_window, (WindowHandlers) {
         .load = prv_window_load,
         .unload = prv_window_unload,
     });
     const bool animated = true;
     window_stack_push(s_window, animated);
+    
+    // Subscribe to minute tick timer to update every minute
+    tick_timer_service_subscribe(MINUTE_UNIT, prv_tick_handler);
 }
 
 static void prv_deinit(void) {
+    // Unsubscribe from tick timer
+    tick_timer_service_unsubscribe();
+    
     window_destroy(s_window);
 }
 

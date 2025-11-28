@@ -243,7 +243,7 @@ void widgets_draw_day_of_week(GContext *ctx) {
     
     GPoint text_pos = GPoint(
         layout->dotw_position.x - text_size.w / 2 - 2, //hehe magic number
-        layout->date_position.y
+        layout->date_position.y + 2
     );
     
     // Draw text centered in circle (top layer)
