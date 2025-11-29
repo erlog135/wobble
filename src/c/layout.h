@@ -25,7 +25,7 @@
 #define WIDGET_BAR_HEIGHT 16
 #define DOTW_CIRCLE_RADIUS 10
 #define DOTW_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
-#define DATE_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
+#define DATE_TEXT_FONT FONT_KEY_ROBOTO_CONDENSED_21
 
 // Layout structure containing all layout properties
 typedef struct {

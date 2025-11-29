@@ -59,7 +59,7 @@ void set_layout(GRect bounds, GRect unobstructed_bounds) {
     layout->battery_bar_bounds = GRect(EDGE_PADDING, EDGE_PADDING, bounds.size.w /3, WIDGET_BAR_HEIGHT);
 
     //date is at the padded top right
-    layout->date_position = GPoint(bounds.size.w - EDGE_PADDING - DOTW_CIRCLE_RADIUS*4, EDGE_PADDING - 2);
+    layout->date_position = GPoint(bounds.size.w - EDGE_PADDING - DOTW_CIRCLE_RADIUS*4, EDGE_PADDING - 4);
 
     //day of the week is at the padded top right
     layout->dotw_position = GPoint(bounds.size.w - DOTW_CIRCLE_RADIUS - EDGE_PADDING - WIDGET_OUTLINE_WIDTH, EDGE_PADDING + DOTW_CIRCLE_RADIUS + WIDGET_OUTLINE_WIDTH);
