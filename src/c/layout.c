@@ -3,17 +3,19 @@
 // Singleton layout instance
 static Layout s_layout_instance;
 
-void set_layout(GRect bounds) {
+void set_layout(GRect bounds, GRect unobstructed_bounds) {
     Layout *layout = &s_layout_instance;
     
     // Store bounds
     layout->bounds = bounds;
     
+    // Use unobstructed bounds for numeral area calculations (obstructions are at the bottom)
     // Calculate available width for numerals after applying horizontal paddings
     int numeral_area_x = NUMERAL_X_PADDING;
-    int numeral_area_w = bounds.size.w - NUMERAL_X_PADDING * 2;
+    int numeral_area_w = unobstructed_bounds.size.w - NUMERAL_X_PADDING * 2;
     int numeral_area_y = WIDGET_BAR_HEIGHT;
-    int numeral_area_h = bounds.size.h - WIDGET_BAR_HEIGHT - NUMERAL_BOTTOM_PADDING; // Subtract bottom padding
+    // Use unobstructed height, accounting for widget bar at top and bottom padding
+    int numeral_area_h = unobstructed_bounds.size.h - WIDGET_BAR_HEIGHT - NUMERAL_BOTTOM_PADDING;
 
     // Calculate quadrant layout properties within numeral area,
     // but reserve WIDGET_BAR_HEIGHT at the top for widgets and NUMERAL_BOTTOM_PADDING at the bottom.
@@ -36,7 +38,11 @@ void set_layout(GRect bounds) {
     layout->start_scale.x = DEFAULT_START_SCALE_X;
     layout->start_scale.y = DEFAULT_START_SCALE_Y;
     layout->target_scale.x = DEFAULT_TARGET_SCALE_X;
-    layout->target_scale.y = DEFAULT_TARGET_SCALE_Y;
+    
+    // If screen is wider than tall (landscape), halve the target scale height
+    bool is_landscape = bounds.size.w > bounds.size.h;
+    layout->target_scale.y = is_landscape ? (DEFAULT_TARGET_SCALE_Y / 2.0f) : DEFAULT_TARGET_SCALE_Y;
+    
     layout->scale_speed.x = DEFAULT_SCALE_SPEED_X;
     layout->scale_speed.y = DEFAULT_SCALE_SPEED_Y;
     

@@ -79,10 +79,10 @@ static GColor get_numeral_color(int digit) {
     switch (digit) {
         case 0:  return GColorElectricBlue;
         case 1:  return GColorYellow;
-        case 2:  return GColorOrange;
+        case 2:  return PBL_IF_COLOR_ELSE(GColorOrange,GColorBlack);
         case 3:  return GColorPictonBlue;
         case 4:  return GColorGreen;
-        case 5:  return GColorRichBrilliantLavender;
+        case 5:  return PBL_IF_COLOR_ELSE(GColorRichBrilliantLavender, GColorDarkGray);
         case 6:  return GColorPastelYellow;
         case 7:  return GColorFolly;
         case 8:  return GColorMediumAquamarine;
@@ -276,7 +276,6 @@ static void prv_restart_physics_timer_if_needed(void) {
 static void prv_physics_timer_callback(void *data) {
     // Update physics for all soft bodies
 
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Physics timer callback");
     bool has_active_bodies = false;
     bool has_active_scaling = false;
     
@@ -383,6 +382,71 @@ static void prv_background_update_proc(Layer *layer, GContext *ctx) {
     widgets_draw(ctx);
 }
 
+// Unobstructed area change handler - called only after the unobstructed area has changed
+static void prv_unobstructed_area_did_change(void *context) {
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Unobstructed area did change");
+
+    Layer *window_layer = window_get_root_layer(s_window);
+    s_bounds = layer_get_bounds(window_layer);
+    
+    // Get updated unobstructed bounds
+    GRect unobstructed_bounds = layer_get_unobstructed_bounds(window_layer);
+    
+    // Store old layout positions before updating
+    const Layout *old_layout = get_layout();
+    GPoint old_positions[4];
+    for (int i = 0; i < 4; i++) {
+        old_positions[i] = old_layout->digit_positions[i];
+    }
+    
+    // Update layout with new unobstructed bounds
+    set_layout(s_bounds, unobstructed_bounds);
+    
+    // Get new layout
+    const Layout *layout = get_layout();
+    bool is_landscape = s_bounds.size.w > s_bounds.size.h;
+    float new_target_scale_y = is_landscape ? (DEFAULT_TARGET_SCALE_Y / 2.0f) : DEFAULT_TARGET_SCALE_Y;
+    
+    // Update existing bodies: reposition and rescale
+    for (int pos = 0; pos < 4; pos++) {
+        int body_idx = s_display_digits.body_idx[pos];
+        if (body_idx >= 0 && body_idx < s_soft_body_count) {
+            SoftBody *body = &s_soft_bodies[body_idx];
+
+            
+            // Calculate offset to move from old position to new position
+            GPoint old_pos = old_positions[pos];
+            GPoint new_pos = layout->digit_positions[pos];
+            GPoint offset = GPoint(new_pos.x - old_pos.x, new_pos.y - old_pos.y);
+            
+            // Translate frame and body to new position with lag for smooth animation
+            if (body->frame && (offset.x != 0 || offset.y != 0)) {
+                APP_LOG(APP_LOG_LEVEL_DEBUG, "Translating body %d with lag: offset=(%d,%d)", body_idx, offset.x, offset.y);
+                soft_body_translate_with_lag(body, offset, 20);
+            }
+            
+            // Update target scale if landscape mode changed
+            if (body->target_scale.y != new_target_scale_y) {
+                body->target_scale.y = new_target_scale_y;
+                // Wake body to animate to new scale
+                soft_body_wake(body);
+            }
+            
+            // Mark layer dirty
+            if (s_body_layers[body_idx]) {
+                layer_mark_dirty(s_body_layers[body_idx]);
+            }
+        }
+    }
+    
+    // Mark background layer dirty to redraw with new layout
+    layer_mark_dirty(s_background_layer);
+    
+    // Restart physics timer if needed to animate position and scale changes
+    prv_restart_physics_timer_if_needed();
+}
+
 // Timer callback to add a shape at a specific quadrant
 // Note: Currently unused, kept for potential future use with delayed animations
 __attribute__((unused)) static void prv_add_shape_timer_callback(void *data) {
@@ -454,8 +518,11 @@ static void prv_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     s_bounds = layer_get_bounds(window_layer);
     
-    // Initialize layout with screen bounds (singleton)
-    set_layout(s_bounds);
+    // Get unobstructed bounds (excludes bottom obstruction area)
+    GRect unobstructed_bounds = layer_get_unobstructed_bounds(window_layer);
+    
+    // Initialize layout with screen bounds and unobstructed bounds (singleton)
+    set_layout(s_bounds, unobstructed_bounds);
     
     // Initialize body layers array
     for (int i = 0; i < MAX_SOFT_BODIES; i++) {
@@ -466,6 +533,12 @@ static void prv_window_load(Window *window) {
     s_background_layer = layer_create(s_bounds);
     layer_set_update_proc(s_background_layer, prv_background_update_proc);
     layer_add_child(window_layer, s_background_layer);
+    
+    // Subscribe to unobstructed area service to handle dynamic obstruction changes
+    UnobstructedAreaHandlers handlers = {
+        .did_change = prv_unobstructed_area_did_change
+    };
+    unobstructed_area_service_subscribe(handlers, window);
     
     // Initialize random seed (use a simple seed)
     //srand(42);
@@ -480,6 +553,9 @@ static void prv_window_load(Window *window) {
 }
 
 static void prv_window_unload(Window *window) {
+    // Unsubscribe from unobstructed area service
+    unobstructed_area_service_unsubscribe();
+    
     // Cancel initial delay timer if still pending
     if (s_initial_delay_timer) {
         app_timer_cancel(s_initial_delay_timer);

@@ -138,6 +138,7 @@ void soft_body_apply_damping(SoftBody *body, float damping);
 void soft_body_update(SoftBody *body, float dt);
 void soft_body_wake_all_points(SoftBody *body);
 void soft_body_wake(SoftBody *body);
+void soft_body_translate_with_lag(SoftBody *body, GPoint offset, int max_lag_pixels);
 void soft_body_update_draw_path(SoftBody *body);
 void soft_body_draw(GContext *ctx, SoftBody *body);
 void soft_body_draw_frame(GContext *ctx, SoftBody *body);

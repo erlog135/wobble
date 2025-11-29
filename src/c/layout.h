@@ -67,7 +67,9 @@ typedef struct {
 // Set layout properties based on screen bounds
 // This function calculates all layout positions and properties
 // Uses singleton pattern - initializes the global layout instance
-void set_layout(GRect bounds);
+// bounds: full screen bounds
+// unobstructed_bounds: unobstructed area (typically excludes bottom obstruction)
+void set_layout(GRect bounds, GRect unobstructed_bounds);
 
 // Get the singleton layout instance
 const Layout* get_layout(void);
