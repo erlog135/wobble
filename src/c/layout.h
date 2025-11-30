@@ -4,7 +4,7 @@
 #include "physics/physics.h"
 
 // Default layout configuration constants
-#define DEFAULT_START_SCALE_X 0.2f
+#define DEFAULT_START_SCALE_X 0.3f
 #define DEFAULT_START_SCALE_Y 0.4f
 #define DEFAULT_TARGET_SCALE_X 0.8f
 #define DEFAULT_TARGET_SCALE_Y 0.8f

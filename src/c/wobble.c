@@ -19,10 +19,13 @@ static SoftBody s_soft_bodies[MAX_SOFT_BODIES];
 static int s_soft_body_count = 0;
 static AppTimer *s_physics_timer = NULL;
 static AppTimer *s_initial_delay_timer = NULL;
+static AppTimer *s_tap_return_timer = NULL;
 static bool s_physics_running = false;
+static bool s_tap_animation_in_progress = false;  // Track if tap animation is currently happening
 static GRect s_bounds;
 static int s_display_hour = 0;
 static int s_display_minute = 0;
+static GPoint s_tap_offsets[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};  // Store offsets for each digit position
 
 // Track which digits are currently displayed and their body indices
 typedef enum {
@@ -100,6 +103,8 @@ typedef struct {
 // Forward declarations
 static void prv_physics_timer_callback(void *data);
 static void prv_restart_physics_timer_if_needed(void);
+static void prv_tap_handler(AccelAxisType axis, int32_t direction);
+static void prv_tap_return_callback(void *data);
 
 // Per-body layer update proc - draws a single body
 static void prv_body_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -341,6 +346,11 @@ static void prv_physics_timer_callback(void *data) {
         // All bodies are sleeping and no scaling, stop the timer
         s_physics_running = false;
         s_physics_timer = NULL;
+        
+        // If tap animation was in progress, mark it as complete now that all bodies are sleeping
+        if (s_tap_animation_in_progress) {
+            s_tap_animation_in_progress = false;
+        }
     }
 }
 
@@ -410,6 +420,95 @@ static void prv_background_update_proc(Layer *layer, GContext *ctx) {
     
     // Draw widgets (battery bar, date, day of week)
     widgets_draw(ctx);
+}
+
+// Tap handler - translates each digit in a random direction
+static void prv_tap_handler(AccelAxisType axis, int32_t direction) {
+    // Ignore new taps if animation is already in progress
+    if (s_tap_animation_in_progress) {
+        return;
+    }
+    
+    // Mark that tap animation is starting
+    s_tap_animation_in_progress = true;
+    
+    // Cancel any pending return timer (shouldn't happen, but be safe)
+    if (s_tap_return_timer) {
+        app_timer_cancel(s_tap_return_timer);
+        s_tap_return_timer = NULL;
+    }
+ 
+    // Generate random offsets for each digit
+    for (int pos = 0; pos < 4; pos++) {
+        int body_idx = s_display_digits.body_idx[pos];
+        if (body_idx >= 0 && body_idx < s_soft_body_count) {
+            SoftBody *body = &s_soft_bodies[body_idx];
+
+            // Randomly split 15 between x and y, and randomly assign each positive or negative
+            int total = 15;
+
+            // Choose a split of total (at least 1 in each direction)
+            int split = (rand() % (total - 1)) + 1; // split in [1,14]
+            int mag_x = split;
+            int mag_y = total - split;
+
+            // Ensure the offset magnitude is always > 14
+            // (since sqrt(mag_x^2 + mag_y^2) >= sqrt(1^2+14^2)=~14, always > 14)
+
+            // Randomize sign for x and y
+            int sign_x = (rand() % 2) == 0 ? 1 : -1;
+            int sign_y = (rand() % 2) == 0 ? 1 : -1;
+
+            int offset_x = mag_x * sign_x;
+            int offset_y = mag_y * sign_y;
+
+            s_tap_offsets[pos] = GPoint(offset_x, offset_y);
+
+            // Translate the body in the random direction
+            if (body->frame) {
+                soft_body_translate_with_lag(body, s_tap_offsets[pos], 20);
+            }
+        } else {
+            // No body at this position, set offset to zero
+            s_tap_offsets[pos] = GPoint(0, 0);
+        }
+    }
+
+    // Schedule return translation after a short delay (200ms)
+    s_tap_return_timer = app_timer_register(200, prv_tap_return_callback, NULL);
+
+    // Restart physics timer to animate the movement
+    prv_restart_physics_timer_if_needed();
+}
+
+// Timer callback to translate digits back to original position
+static void prv_tap_return_callback(void *data) {
+    s_tap_return_timer = NULL;
+    
+    // Translate each digit back to original position (negate the offset)
+    for (int pos = 0; pos < 4; pos++) {
+        int body_idx = s_display_digits.body_idx[pos];
+        if (body_idx >= 0 && body_idx < s_soft_body_count) {
+            SoftBody *body = &s_soft_bodies[body_idx];
+            
+            // Negate the offset to return to original position
+            GPoint return_offset = GPoint(-s_tap_offsets[pos].x, -s_tap_offsets[pos].y);
+            
+            // Translate back
+            if (body->frame && (return_offset.x != 0 || return_offset.y != 0)) {
+                soft_body_translate_with_lag(body, return_offset, 20);
+            }
+            
+            // Reset stored offset
+            s_tap_offsets[pos] = GPoint(0, 0);
+        }
+    }
+    
+    // Don't reset s_tap_animation_in_progress here - wait for all bodies to sleep
+    // The flag will be reset in the physics timer callback when all bodies are sleeping
+    
+    // Restart physics timer to animate the return movement
+    prv_restart_physics_timer_if_needed();
 }
 
 // Unobstructed area change handler - called only after the unobstructed area has changed
@@ -570,8 +669,11 @@ static void prv_window_load(Window *window) {
     };
     unobstructed_area_service_subscribe(handlers, window);
     
-    // Initialize random seed (use a simple seed)
-    //srand(42);
+    // Subscribe to tap service for digit animation
+    accel_tap_service_subscribe(prv_tap_handler);
+    
+    // Initialize random seed using current time
+    srand(time(NULL));
     
     // Mark background layer dirty for initial draw
     layer_mark_dirty(s_background_layer);
@@ -585,6 +687,15 @@ static void prv_window_load(Window *window) {
 static void prv_window_unload(Window *window) {
     // Unsubscribe from unobstructed area service
     unobstructed_area_service_unsubscribe();
+    
+    // Unsubscribe from tap service
+    accel_tap_service_unsubscribe();
+    
+    // Cancel tap return timer if pending
+    if (s_tap_return_timer) {
+        app_timer_cancel(s_tap_return_timer);
+        s_tap_return_timer = NULL;
+    }
     
     // Cancel initial delay timer if still pending
     if (s_initial_delay_timer) {
