@@ -665,6 +665,11 @@ static void prv_initial_delay_callback(void *data) {
 static void prv_tick_handler(struct tm *tick_time, TimeUnits changed) {
     // Update displayed time
     prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
+    
+    // Mark background layer dirty to update date and day of week widgets
+    if (s_background_layer) {
+        layer_mark_dirty(s_background_layer);
+    }
 }
 
 static void prv_window_load(Window *window) {
