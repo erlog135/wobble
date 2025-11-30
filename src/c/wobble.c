@@ -354,18 +354,48 @@ static void prv_draw_grid(GContext *ctx, GRect bounds) {
     graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorPictonBlue, GColorDarkGray));
     graphics_context_set_stroke_width(ctx, 1);
     
-    // Draw vertical lines (centered)
-    for (int x = layout->grid_offset_x; x <= bounds.size.w; x += layout->grid_spacing_x) {
-        //graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, bounds.size.h));
-        //for now, fill a 1px wide rectangle
-        graphics_fill_rect(ctx, GRect(x, 0, 1, bounds.size.h), 0, GCornerNone);
+    // Calculate center points
+    int center_x = bounds.size.w / 2;
+    int center_y = bounds.size.h / 2;
+    
+    // Calculate half spacing (first line distance from center)
+    int half_spacing_x = layout->grid_spacing_x / 2;
+    int half_spacing_y = layout->grid_spacing_y / 2;
+    
+    // Draw vertical lines (centered, going outward in both directions)
+    // Start from center ± half_spacing, then add full spacing each time
+    for (int offset = half_spacing_x; offset <= center_x; offset += layout->grid_spacing_x) {
+        // Draw line to the right of center
+        int x_right = center_x + offset;
+        if (x_right < bounds.size.w) {
+            graphics_fill_rect(ctx, GRect(x_right, 0, 1, bounds.size.h), 0, GCornerNone);
+        }
+        
+        // Draw line to the left of center (if not at center)
+        if (offset > 0) {
+            int x_left = center_x - offset;
+            if (x_left >= 0) {
+                graphics_fill_rect(ctx, GRect(x_left, 0, 1, bounds.size.h), 0, GCornerNone);
+            }
+        }
     }
     
-    // Draw horizontal lines (centered)
-    for (int y = layout->grid_offset_y; y <= bounds.size.h; y += layout->grid_spacing_y) {
-        //graphics_draw_line(ctx, GPoint(0, y), GPoint(bounds.size.w, y));
-        //for now, fill a 1px tall rectangle
-        graphics_fill_rect(ctx, GRect(0, y, bounds.size.w, 1), 0, GCornerNone);
+    // Draw horizontal lines (centered, going outward in both directions)
+    // Start from center ± half_spacing, then add full spacing each time
+    for (int offset = half_spacing_y; offset <= center_y; offset += layout->grid_spacing_y) {
+        // Draw line below center
+        int y_bottom = center_y + offset;
+        if (y_bottom < bounds.size.h) {
+            graphics_fill_rect(ctx, GRect(0, y_bottom, bounds.size.w, 1), 0, GCornerNone);
+        }
+        
+        // Draw line above center (if not at center)
+        if (offset > 0) {
+            int y_top = center_y - offset;
+            if (y_top >= 0) {
+                graphics_fill_rect(ctx, GRect(0, y_top, bounds.size.w, 1), 0, GCornerNone);
+            }
+        }
     }
 }
 

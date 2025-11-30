@@ -256,6 +256,13 @@ void widgets_draw_day_of_week(GContext *ctx) {
 }
 
 void widgets_draw(GContext *ctx) {
+    const Layout *layout = get_layout();
+    
+    // Don't draw widgets if widget bar height is 0 (obstructed)
+    if (layout->widget_bar_height == 0) {
+        return;
+    }
+    
     widgets_draw_battery_bar(ctx);
     widgets_draw_date(ctx);
     widgets_draw_day_of_week(ctx);

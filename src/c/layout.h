@@ -22,7 +22,7 @@
 #define WIDGET_OUTLINE_WIDTH 2
 #define EDGE_PADDING 0
 #define BATTERY_BAR_PADDING 3
-#define WIDGET_BAR_HEIGHT 16
+#define DEFAULT_WIDGET_BAR_HEIGHT 16
 #define DOTW_CIRCLE_RADIUS 10
 #define DOTW_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
 #define DATE_TEXT_FONT FONT_KEY_ROBOTO_CONDENSED_21
@@ -49,8 +49,6 @@ typedef struct {
     // Grid properties
     int grid_spacing_x;
     int grid_spacing_y;
-    int grid_offset_x;
-    int grid_offset_y;
     bool grid_enabled;
 
     //battery bar properties
@@ -61,6 +59,9 @@ typedef struct {
 
     //day of the week position;
     GPoint dotw_position;
+
+    //widget bar height
+    int widget_bar_height;
 
 } Layout;
 
