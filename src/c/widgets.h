@@ -2,6 +2,9 @@
 
 #include <pebble.h>
 
+// Enable/disable demo mode
+void widgets_set_demo_mode(bool enabled);
+
 // Draw all widgets using the singleton layout
 void widgets_draw(GContext *ctx);
 
