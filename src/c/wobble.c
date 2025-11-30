@@ -26,6 +26,9 @@ static GRect s_bounds;
 static int s_display_hour = 0;
 static int s_display_minute = 0;
 static GPoint s_tap_offsets[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};  // Store offsets for each digit position
+static bool s_pending_time_update = false;  // Track if a time update is pending
+static int s_pending_hour_24h = 0;  // Pending hour (24-hour format)
+static int s_pending_minute = 0;  // Pending minute
 
 // Track which digits are currently displayed and their body indices
 typedef enum {
@@ -105,6 +108,7 @@ static void prv_physics_timer_callback(void *data);
 static void prv_restart_physics_timer_if_needed(void);
 static void prv_tap_handler(AccelAxisType axis, int32_t direction);
 static void prv_tap_return_callback(void *data);
+static void prv_update_time_display(int hour_24h, int minute);
 
 // Per-body layer update proc - draws a single body
 static void prv_body_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -350,6 +354,18 @@ static void prv_physics_timer_callback(void *data) {
         // If tap animation was in progress, mark it as complete now that all bodies are sleeping
         if (s_tap_animation_in_progress) {
             s_tap_animation_in_progress = false;
+        }
+        
+        // Apply pending time update if one exists
+        if (s_pending_time_update) {
+            s_pending_time_update = false;
+            int pending_hour = s_pending_hour_24h;
+            int pending_minute = s_pending_minute;
+            // Clear pending values before calling (in case it needs to defer again)
+            s_pending_hour_24h = 0;
+            s_pending_minute = 0;
+            // Apply the update (physics is now sleeping, so it will apply immediately)
+            prv_update_time_display(pending_hour, pending_minute);
         }
     }
 }
@@ -602,6 +618,14 @@ static int prv_convert_to_12h(int hour_24h) {
 // Update the 4 numerals to display the given time (HH:MM format)
 // hour should be in 24-hour format; it will be converted based on user preference
 static void prv_update_time_display(int hour_24h, int minute) {
+    // If physics is running, defer the update until physics sleeps
+    if (s_physics_running) {
+        s_pending_time_update = true;
+        s_pending_hour_24h = hour_24h;
+        s_pending_minute = minute;
+        return;
+    }
+    
     // Convert hour based on user's 12/24 hour preference
     int display_hour;
     if (clock_is_24h_style()) {
