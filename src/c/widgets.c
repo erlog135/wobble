@@ -2,8 +2,14 @@
 #include "layout.h"
 #include <time.h>
 
+#ifdef DEMO_MODE
 // Demo mode flag
 static bool s_demo_mode = false;
+
+void widgets_set_demo_mode(bool enabled) {
+    s_demo_mode = enabled;
+}
+#endif
 
 // Day of week abbreviations (2 letters)
 static const char* s_day_abbreviations[] = {
@@ -16,22 +22,23 @@ static const char* s_day_abbreviations[] = {
     "SA"   // Saturday
 };
 
-void widgets_set_demo_mode(bool enabled) {
-    s_demo_mode = enabled;
-}
-
 void widgets_draw_battery_bar(GContext *ctx) {
     const Layout *layout = get_layout();
     GRect bounds = layout->battery_bar_bounds;
     
     // Get battery state
     uint8_t battery_percent;
+#ifdef DEMO_MODE
     if (s_demo_mode) {
         battery_percent = 100;  // Demo: 100%
     } else {
         BatteryChargeState battery_state = battery_state_service_peek();
         battery_percent = battery_state.charge_percent;
     }
+#else
+    BatteryChargeState battery_state = battery_state_service_peek();
+    battery_percent = battery_state.charge_percent;
+#endif
     
     // Calculate the main bar width - shrinks from full width to 0
     // Account for outline (2px on each side) and padding
@@ -205,6 +212,7 @@ void widgets_draw_date(GContext *ctx) {
     
     // Format date as mm.dd
     static char date_buffer[6];  // "mm.dd\0"
+#ifdef DEMO_MODE
     if (s_demo_mode) {
         // Demo: 02.12 (February 12th)
         snprintf(date_buffer, sizeof(date_buffer), "02.12");
@@ -215,6 +223,13 @@ void widgets_draw_date(GContext *ctx) {
         snprintf(date_buffer, sizeof(date_buffer), "%02d.%02d", 
                  tick_time->tm_mon + 1, tick_time->tm_mday);
     }
+#else
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    snprintf(date_buffer, sizeof(date_buffer), "%02d.%02d", 
+             tick_time->tm_mon + 1, tick_time->tm_mday);
+#endif
     
     // Get font
     GFont font = fonts_get_system_font(DATE_TEXT_FONT);
@@ -233,6 +248,7 @@ void widgets_draw_day_of_week(GContext *ctx) {
     
     // Get day of week (0 = Sunday, 6 = Saturday)
     int day_of_week;
+#ifdef DEMO_MODE
     if (s_demo_mode) {
         // Demo: Thursday (4)
         day_of_week = 4;
@@ -242,6 +258,12 @@ void widgets_draw_day_of_week(GContext *ctx) {
         struct tm *tick_time = localtime(&temp);
         day_of_week = tick_time->tm_wday;
     }
+#else
+    // Get current time
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    day_of_week = tick_time->tm_wday;
+#endif
     const char* day_text = s_day_abbreviations[day_of_week];
     
     // Draw black outer circle to emulate stroke (bottommost layer)

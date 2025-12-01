@@ -12,10 +12,6 @@
 #define INITIAL_NUMERAL_DELAY_MS 500  // Delay before showing numerals on first launch (milliseconds)
 #define SHAPE_BASE_SIZE 80  // Base size of shapes (80x80px) - shapes are centered at (40, 40)
 
-// Demo mode: Set to 1 to enable demo mode with fixed values
-// Demo values: Time 12:35, Battery 100%, Date 02.12, Day Thursday
-#define DEMO_MODE 1
-
 static Window *s_window;
 static Layer *s_background_layer;
 static Layer *s_body_layers[MAX_SOFT_BODIES];
@@ -660,23 +656,23 @@ static void prv_initial_delay_callback(void *data) {
     s_initial_delay_timer = NULL;
     
     // Get current time and display it (or use demo values)
-    if (DEMO_MODE) {
-        prv_update_time_display(12, 35);  // Demo: 12:35
-    } else {
-        time_t temp = time(NULL);
-        struct tm *tick_time = localtime(&temp);
-        prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
-    }
+#ifdef DEMO_MODE
+    prv_update_time_display(12, 35);  // Demo: 12:35
+#else
+    time_t temp = time(NULL);
+    struct tm *tick_time = localtime(&temp);
+    prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
+#endif
 }
 
 // Tick timer handler - called every minute
 static void prv_tick_handler(struct tm *tick_time, TimeUnits changed) {
     // Update displayed time (or use demo values)
-    if (DEMO_MODE) {
-        prv_update_time_display(12, 35);  // Demo: 12:35
-    } else {
-        prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
-    }
+#ifdef DEMO_MODE
+    prv_update_time_display(12, 35);  // Demo: 12:35
+#else
+    prv_update_time_display(tick_time->tm_hour, tick_time->tm_min);
+#endif
     
     // Mark background layer dirty to update date and day of week widgets
     if (s_background_layer) {
@@ -717,7 +713,9 @@ static void prv_window_load(Window *window) {
     srand(time(NULL));
     
     // Enable demo mode if configured
-    widgets_set_demo_mode(DEMO_MODE);
+#ifdef DEMO_MODE
+    widgets_set_demo_mode(true);
+#endif
     
     // Mark background layer dirty for initial draw
     layer_mark_dirty(s_background_layer);
