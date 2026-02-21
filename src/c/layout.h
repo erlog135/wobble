@@ -4,13 +4,23 @@
 #include "physics/physics.h"
 
 // Default layout configuration constants
+
+
+#if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
+#define DEFAULT_START_SCALE_X 0.3f
+#define DEFAULT_START_SCALE_Y 0.4f
+#define DEFAULT_TARGET_SCALE_X 1.2f
+#define DEFAULT_TARGET_SCALE_Y 1.2f
+
+#else
 #define DEFAULT_START_SCALE_X 0.3f
 #define DEFAULT_START_SCALE_Y 0.4f
 #define DEFAULT_TARGET_SCALE_X 0.8f
 #define DEFAULT_TARGET_SCALE_Y 0.8f
-#define DEFAULT_SCALE_SPEED_X 0.8f
-#define DEFAULT_SCALE_SPEED_Y 0.8f
+#endif
 
+#define DEFAULT_SCALE_SPEED_X 0.5f
+#define DEFAULT_SCALE_SPEED_Y 0.5f
 #define DEFAULT_GRID_SPACING_X 25
 #define DEFAULT_GRID_SPACING_Y 25
 #define DEFAULT_GRID_ENABLED true

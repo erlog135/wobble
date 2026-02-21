@@ -34,7 +34,7 @@ void shape_frame_init(ShapeFrame *frame, GPoint *positions, int point_count, Sca
         
         point_mass_init(&frame->frame_points[i], scaled_pos, FRAME_MASS);
         // Frame points have zero velocity (they're controlled directly)
-        frame->frame_points[i].velocity = GPoint(0, 0);
+        frame->frame_points[i].velocity = (Vec2){0, 0};
     }
 }
 
@@ -324,8 +324,8 @@ void soft_body_translate_with_lag(SoftBody *body, GPoint offset, int max_lag_pix
 void soft_body_apply_damping(SoftBody *body, float damping) {
     // Damping is applied during point_mass_update, but this can be used for global damping
     for (int i = 0; i < body->point_count; i++) {
-        body->points[i].velocity.x *= damping;
-        body->points[i].velocity.y *= damping;
+        body->points[i].velocity.x = (int32_t)(body->points[i].velocity.x * damping);
+        body->points[i].velocity.y = (int32_t)(body->points[i].velocity.y * damping);
     }
 }
 
@@ -364,7 +364,7 @@ void soft_body_update(SoftBody *body, float dt) {
                 prev_pos_1.x == prev_pos_2.x && prev_pos_1.y == prev_pos_2.y) {
                 // Position hasn't changed for 2 consecutive updates, put to sleep
                 body->points[i].position = body->frame->frame_points[i].position;
-                body->points[i].velocity = GPoint(0, 0);  // Stop movement
+                body->points[i].velocity = (Vec2){0, 0};
                 body->point_active[i] = 0;
                 body->active_point_count--;
 

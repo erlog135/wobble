@@ -3,7 +3,7 @@
 #include <pebble.h>
 
 // Debug drawing controls
-#define DEBUG_DRAW_ELEMENTS 0  // Set to 1 to show frame box and point mass circles, 0 to hide
+#define DEBUG_DRAW_ELEMENTS 1 // Set to 1 to show frame box and point mass circles, 0 to hide
 
 // Physics optimization constants
 #define POINT_SLEEP_VELOCITY_THRESHOLD 4.0f  // Velocity threshold below which points go to sleep
@@ -15,6 +15,12 @@ typedef struct Spring Spring;
 typedef struct ShapeFrame ShapeFrame;
 typedef struct SoftBody SoftBody;
 
+// 32-bit integer vector — used for velocity and force to avoid int16_t overflow
+typedef struct {
+    int32_t x;
+    int32_t y;
+} Vec2;
+
 // Structure for storing separate x and y scale factors (floats)
 typedef struct {
     float x;
@@ -23,9 +29,9 @@ typedef struct {
 
 // Point mass structure
 struct PointMass {
-    GPoint position;
-    GPoint velocity;
-    GPoint force;
+    GPoint position;  // int16_t is sufficient — screen coords fit
+    Vec2 velocity;    // int32_t avoids overflow under large spring forces
+    Vec2 force;       // int32_t avoids overflow under large spring forces
     int mass;
 };
 
@@ -35,7 +41,7 @@ struct Spring {
     PointMass *point2;
     int rest_length;
     int stiffness;
-    int damping;
+    float damping;
 };
 
 // Shape frame structure - represents the ideal/target shape
@@ -79,10 +85,10 @@ struct SoftBody {
 };
 
 // Physics constants
-#define DAMPING_DEFAULT 0.80f
-#define FRAME_SPRING_STIFFNESS_DEFAULT 1200  // Base stiffness for frame-to-body springs
+#define DAMPING_DEFAULT 0.7f
+#define FRAME_SPRING_STIFFNESS_DEFAULT 800  // Base stiffness for frame-to-body springs
 #define FRAME_SPRING_STIFFNESS_RANDOM_FACTOR 0.3f  // Randomization factor: ±30% variation (0.7x to 1.3x)
-#define FRAME_SPRING_DAMPING_DEFAULT 0.80f  // Damping for frame-to-body springs
+#define FRAME_SPRING_DAMPING_DEFAULT 0.8f  // Damping for frame-to-body springs
 #define FRAME_MASS 10000  // Very high mass for frame points (effectively fixed)
 
 // Integer square root function (replaces math.h sqrt)
@@ -114,12 +120,12 @@ static inline int physics_sqrt(int n) {
 
 // Point mass functions
 void point_mass_init(PointMass *pm, GPoint position, int mass);
-void point_mass_apply_force(PointMass *pm, GPoint force);
+void point_mass_apply_force(PointMass *pm, Vec2 force);
 void point_mass_update(PointMass *pm, float damping, float dt);
 void point_mass_reset_force(PointMass *pm);
 
 // Spring functions
-void spring_init(Spring *spring, PointMass *p1, PointMass *p2, int rest_length, int stiffness, int damping);
+void spring_init(Spring *spring, PointMass *p1, PointMass *p2, int rest_length, int stiffness, float damping);
 void spring_apply_forces(Spring *spring);
 
 // Shape frame functions

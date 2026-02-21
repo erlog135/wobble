@@ -13,8 +13,11 @@
     "targetPlatforms": [
       "aplite",
       "basalt",
+      "chalk",
       "diorite",
-      "flint"
+      "flint",
+      "emery",
+      "gabbro"
     ],
     "watchapp": {
       "watchface": true

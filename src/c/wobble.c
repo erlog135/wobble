@@ -2,13 +2,12 @@
 #include <time.h>
 #include "physics/physics.h"
 #include "physics/numerals.h"
-#include "physics/objects.h"
 #include "layout.h"
 #include "widgets.h"
 
 #define MAX_SOFT_BODIES 10
 #define PHYSICS_TIMER_MS 33  // ~30 FPS
-#define SHAPE_APPEAR_DELAY_MS 50  // Delay between shapes appearing (milliseconds)
+#define PHYSICS_DT (PHYSICS_TIMER_MS / 1000.0f)
 #define INITIAL_NUMERAL_DELAY_MS 500  // Delay before showing numerals on first launch (milliseconds)
 #define SHAPE_BASE_SIZE 80  // Base size of shapes (80x80px) - shapes are centered at (40, 40)
 
@@ -65,21 +64,6 @@ static const ShapeDef s_shapes[] = {
     {nine_points, NINE_POINT_COUNT}
 };
 #define SHAPE_COUNT (sizeof(s_shapes) / sizeof(s_shapes[0]))
-
-// All object shapes from objects.h
-static const ShapeDef s_object_shapes[] = {
-    {shape_zero_points, SHAPE_ZERO_POINT_COUNT},
-    {shape_one_points, SHAPE_ONE_POINT_COUNT},
-    {shape_two_points, SHAPE_TWO_POINT_COUNT},
-    {shape_three_points, SHAPE_THREE_POINT_COUNT},
-    {shape_four_points, SHAPE_FOUR_POINT_COUNT},
-    {shape_five_points, SHAPE_FIVE_POINT_COUNT},
-    {shape_six_points, SHAPE_SIX_POINT_COUNT},
-    {shape_seven_points, SHAPE_SEVEN_POINT_COUNT},
-    {shape_eight_points, SHAPE_EIGHT_POINT_COUNT},
-    {shape_nine_points, SHAPE_NINE_POINT_COUNT}
-};
-#define OBJECT_SHAPE_COUNT (sizeof(s_object_shapes) / sizeof(s_object_shapes[0]))
 
 static GColor get_numeral_color(int digit) {
     switch (digit) {
@@ -328,7 +312,7 @@ static void prv_physics_timer_callback(void *data) {
 
         // Update physics only for non-sleeping softbodies
         if (!body->is_sleeping) {
-            soft_body_update(body, 0.016f); // ~16ms timestep
+            soft_body_update(body, PHYSICS_DT);
             has_active_bodies = true;  // At least one body is active
         }
         
