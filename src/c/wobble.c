@@ -464,9 +464,10 @@ static void prv_tap_handler(AccelAxisType axis, int32_t direction) {
 
             s_tap_offsets[pos] = GPoint(offset_x, offset_y);
 
-            // Translate the body in the random direction
+            // Move the frame; body follows via springs
             if (body->frame) {
-                soft_body_translate_with_lag(body, s_tap_offsets[pos], 20);
+                shape_frame_translate(body->frame, s_tap_offsets[pos]);
+                soft_body_wake(body);
             }
         } else {
             // No body at this position, set offset to zero
@@ -494,9 +495,10 @@ static void prv_tap_return_callback(void *data) {
             // Negate the offset to return to original position
             GPoint return_offset = GPoint(-s_tap_offsets[pos].x, -s_tap_offsets[pos].y);
             
-            // Translate back
+            // Move the frame back; body follows via springs
             if (body->frame && (return_offset.x != 0 || return_offset.y != 0)) {
-                soft_body_translate_with_lag(body, return_offset, 20);
+                shape_frame_translate(body->frame, return_offset);
+                soft_body_wake(body);
             }
             
             // Reset stored offset
@@ -549,10 +551,10 @@ static void prv_unobstructed_area_did_change(void *context) {
             GPoint new_pos = layout->digit_positions[pos];
             GPoint offset = GPoint(new_pos.x - old_pos.x, new_pos.y - old_pos.y);
             
-            // Translate frame and body to new position with lag for smooth animation
+            // Move the frame to new position; body follows via springs
             if (body->frame && (offset.x != 0 || offset.y != 0)) {
-                APP_LOG(APP_LOG_LEVEL_DEBUG, "Translating body %d with lag: offset=(%d,%d)", body_idx, offset.x, offset.y);
-                soft_body_translate_with_lag(body, offset, 20);
+                shape_frame_translate(body->frame, offset);
+                soft_body_wake(body);
             }
             
             // Update target scale if landscape mode changed

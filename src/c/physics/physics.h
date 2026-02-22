@@ -3,7 +3,7 @@
 #include <pebble.h>
 
 // Debug drawing controls
-#define DEBUG_DRAW_ELEMENTS 1 // Set to 1 to show frame box and point mass circles, 0 to hide
+#define DEBUG_DRAW_ELEMENTS 0 // Set to 1 to show frame box and point mass circles, 0 to hide
 
 // Physics optimization constants
 #define POINT_SLEEP_VELOCITY_THRESHOLD 4.0f  // Velocity threshold below which points go to sleep
@@ -144,7 +144,6 @@ void soft_body_apply_damping(SoftBody *body, float damping);
 void soft_body_update(SoftBody *body, float dt);
 void soft_body_wake_all_points(SoftBody *body);
 void soft_body_wake(SoftBody *body);
-void soft_body_translate_with_lag(SoftBody *body, GPoint offset, int max_lag_pixels);
 void soft_body_update_draw_path(SoftBody *body);
 void soft_body_draw(GContext *ctx, SoftBody *body);
 void soft_body_draw_frame(GContext *ctx, SoftBody *body);

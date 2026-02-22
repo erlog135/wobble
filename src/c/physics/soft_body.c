@@ -265,61 +265,6 @@ void soft_body_wake(SoftBody *body) {
     }
 }
 
-void soft_body_translate_with_lag(SoftBody *body, GPoint offset, int max_lag_pixels) {
-    if (!body || !body->frame) {
-        return;
-    }
-    
-    // Translate frame by full offset
-    shape_frame_translate(body->frame, offset);
-    
-    // Check if offset is less than max_lag_pixels in both directions
-    int abs_offset_x = offset.x < 0 ? -offset.x : offset.x;
-    int abs_offset_y = offset.y < 0 ? -offset.y : offset.y;
-    
-    if (abs_offset_x < max_lag_pixels && abs_offset_y < max_lag_pixels) {
-        // Offset is small in both directions, don't move body points at all
-        // Only the frame moves, body will animate to catch up
-        soft_body_wake(body);
-        return;
-    }
-    
-    // Calculate the magnitude of the offset
-    int offset_magnitude_squared = offset.x * offset.x + offset.y * offset.y;
-    int max_lag_squared = max_lag_pixels * max_lag_pixels;
-    
-    GPoint body_offset;
-    
-    if (offset_magnitude_squared <= max_lag_squared) {
-        // Offset magnitude is small enough, move body points by full offset (no lag)
-        body_offset = offset;
-    } else {
-        // Offset is large, reduce body movement to leave lag
-        // Calculate the scale factor to reduce the offset
-        // We want: body_offset_magnitude = offset_magnitude - max_lag_pixels
-        int offset_magnitude = physics_sqrt(offset_magnitude_squared);
-        int body_offset_magnitude = offset_magnitude - max_lag_pixels;
-        
-        // Scale the offset vector proportionally
-        // body_offset = offset * (body_offset_magnitude / offset_magnitude)
-        body_offset.x = (offset.x * body_offset_magnitude) / offset_magnitude;
-        body_offset.y = (offset.y * body_offset_magnitude) / offset_magnitude;
-    }
-    
-    // Translate body points by reduced offset (with lag)
-    for (int i = 0; i < body->point_count; i++) {
-        body->points[i].position.x += body_offset.x;
-        body->points[i].position.y += body_offset.y;
-        // Also update previous positions to prevent sleep detection issues
-        body->prev_positions_1[i].x += body_offset.x;
-        body->prev_positions_1[i].y += body_offset.y;
-        body->prev_positions_2[i].x += body_offset.x;
-        body->prev_positions_2[i].y += body_offset.y;
-    }
-    
-    // Wake the body so it animates to catch up with the frame
-    soft_body_wake(body);
-}
 
 void soft_body_apply_damping(SoftBody *body, float damping) {
     // Damping is applied during point_mass_update, but this can be used for global damping

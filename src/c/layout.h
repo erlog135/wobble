@@ -7,16 +7,19 @@
 
 
 #if defined(PBL_PLATFORM_EMERY) || defined(PBL_PLATFORM_GABBRO)
-#define DEFAULT_START_SCALE_X 0.3f
-#define DEFAULT_START_SCALE_Y 0.4f
-#define DEFAULT_TARGET_SCALE_X 1.2f
-#define DEFAULT_TARGET_SCALE_Y 1.2f
+    #define DEFAULT_START_SCALE_X 0.3f
+    #define DEFAULT_START_SCALE_Y 0.4f
+    #define DEFAULT_TARGET_SCALE_X 1.15f
+    #define DEFAULT_TARGET_SCALE_Y 1.15f
 
+    #define DEFAULT_WIDGET_BAR_HEIGHT 18
 #else
-#define DEFAULT_START_SCALE_X 0.3f
-#define DEFAULT_START_SCALE_Y 0.4f
-#define DEFAULT_TARGET_SCALE_X 0.8f
-#define DEFAULT_TARGET_SCALE_Y 0.8f
+    #define DEFAULT_START_SCALE_X 0.3f
+    #define DEFAULT_START_SCALE_Y 0.4f
+    #define DEFAULT_TARGET_SCALE_X 0.8f
+    #define DEFAULT_TARGET_SCALE_Y 0.8f
+
+    #define DEFAULT_WIDGET_BAR_HEIGHT PBL_IF_ROUND_ELSE(12, 16)
 #endif
 
 #define DEFAULT_SCALE_SPEED_X 0.5f
@@ -27,12 +30,23 @@
 
 #define NUMERAL_X_PADDING 10
 #define NUMERAL_BOTTOM_PADDING 2
+#define OBSTRUCTION_ROW_SHIFT 8
 
+// Round-only spacing constants
+#if defined(PBL_PLATFORM_GABBRO)
+    #define ROUND_NUMERAL_INSET_X 48  // horizontal inset for the numeral quad
+    #define ROUND_NUMERAL_INSET_Y 30  // vertical inset for the numeral quad
+    #define ROUND_WIDGET_PADDING  8   // distance from screen edge to battery bar (top) and date (bottom)
+#else
+    #define ROUND_NUMERAL_INSET_X 30
+    #define ROUND_NUMERAL_INSET_Y 20  
+    #define ROUND_WIDGET_PADDING  8   
+#endif
 // Widget layout constants
 #define WIDGET_OUTLINE_WIDTH 2
 #define EDGE_PADDING 0
 #define BATTERY_BAR_PADDING 3
-#define DEFAULT_WIDGET_BAR_HEIGHT 16
+
 #define DOTW_CIRCLE_RADIUS 10
 #define DOTW_TEXT_FONT FONT_KEY_GOTHIC_18_BOLD
 #define DATE_TEXT_FONT FONT_KEY_ROBOTO_CONDENSED_21

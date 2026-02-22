@@ -45,12 +45,17 @@ void widgets_draw_battery_bar(GContext *ctx) {
     int full_width = bounds.size.w;
     int main_bar_width = (full_width * battery_percent) / 100;
     
-    int base_x = bounds.origin.x + WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
-    int base_y = bounds.origin.y + WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING;
-    int bar_height = bounds.size.h - BATTERY_BAR_PADDING * 2;
+    // On round: draw flush to the bounds origin — ROUND_WIDGET_PADDING is the sole position control.
+    // On rect: inset by WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING so the stroke fits inside the bar area.
+    int base_x = bounds.origin.x + PBL_IF_ROUND_ELSE(0, WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING);
+    int base_y = bounds.origin.y + PBL_IF_ROUND_ELSE(0, WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING);
+    int bar_height = bounds.size.h - PBL_IF_ROUND_ELSE(0, BATTERY_BAR_PADDING * 2);
     
-    // Calculate segment widths - each segment represents 25% of the full width
+    // Calculate segment widths - each segment represents 25% of the full width.
+    // last_segment_width absorbs any remainder from integer division so the
+    // rightmost colored fill always reaches exactly main_bar_width at 100%.
     int segment_width = full_width / 4;
+    int last_segment_width = full_width - segment_width * 3;
     int segment_75_100_width = 0;
     int segment_50_75_width = 0;
     int segment_25_50_width = 0;
@@ -60,13 +65,15 @@ void widgets_draw_battery_bar(GContext *ctx) {
     // Segments fill proportionally within their 25% range and are clamped by main bar width
     // Lower segments are always drawn at full width when battery is above their range
     if (main_bar_width > 0) {
-        // 75-100% segment: fills proportionally from 75% to 100%
+        // 75-100% segment: fills proportionally from 75% to 100%.
+        // Uses last_segment_width (not segment_width) so it absorbs any
+        // integer-division remainder and always reaches the right edge at 100%.
         if (battery_percent > 75) {
             int segment_start_x = segment_width * 3;
-            segment_75_100_width = (segment_width * (battery_percent - 75)) / 25;
-            // Clamp to segment width and ensure it doesn't extend beyond main bar
-            if (segment_75_100_width > segment_width) {
-                segment_75_100_width = segment_width;
+            segment_75_100_width = (last_segment_width * (battery_percent - 75)) / 25;
+            // Clamp to last_segment_width and ensure it doesn't extend beyond main bar
+            if (segment_75_100_width > last_segment_width) {
+                segment_75_100_width = last_segment_width;
             }
             if (segment_start_x + segment_75_100_width > main_bar_width) {
                 segment_75_100_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
@@ -234,12 +241,15 @@ void widgets_draw_date(GContext *ctx) {
     // Get font
     GFont font = fonts_get_system_font(DATE_TEXT_FONT);
     
-    // Draw text (right-aligned since position is at top-right)
+    // On round: center the text horizontally around date_position (bottom-center).
+    // Otherwise: right-align at top-right.
+    GTextAlignment date_align = PBL_IF_ROUND_ELSE(GTextAlignmentCenter, GTextAlignmentRight);
+    int date_rect_x = PBL_IF_ROUND_ELSE(layout->date_position.x - 25, layout->date_position.x - 40);
     graphics_context_set_text_color(ctx, GColorDarkGreen);
-    graphics_draw_text(ctx, date_buffer, font, 
-                       GRect(layout->date_position.x - 40, layout->date_position.y, 50, 20),
+    graphics_draw_text(ctx, date_buffer, font,
+                       GRect(date_rect_x, layout->date_position.y, 50, 20),
                        GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentRight,
+                       date_align,
                        NULL);
 }
 
@@ -310,6 +320,8 @@ void widgets_draw(GContext *ctx) {
     
     widgets_draw_battery_bar(ctx);
     widgets_draw_date(ctx);
+#ifndef PBL_ROUND
     widgets_draw_day_of_week(ctx);
+#endif
 }
 
