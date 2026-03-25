@@ -13,6 +13,11 @@
     #define DEFAULT_TARGET_SCALE_Y 1.15f
 
     #define DEFAULT_WIDGET_BAR_HEIGHT 18
+
+    #define OBSTRUCTION_ROW_SHIFT 14
+
+    #define DEFAULT_GRID_SPACING_X 32
+    #define DEFAULT_GRID_SPACING_Y 32
 #else
     #define DEFAULT_START_SCALE_X 0.3f
     #define DEFAULT_START_SCALE_Y 0.4f
@@ -20,23 +25,26 @@
     #define DEFAULT_TARGET_SCALE_Y 0.8f
 
     #define DEFAULT_WIDGET_BAR_HEIGHT PBL_IF_ROUND_ELSE(12, 16)
+
+    #define OBSTRUCTION_ROW_SHIFT 8
+
+    #define DEFAULT_GRID_SPACING_X 25
+    #define DEFAULT_GRID_SPACING_Y 25
 #endif
 
 #define DEFAULT_SCALE_SPEED_X 0.5f
 #define DEFAULT_SCALE_SPEED_Y 0.5f
-#define DEFAULT_GRID_SPACING_X 25
-#define DEFAULT_GRID_SPACING_Y 25
 #define DEFAULT_GRID_ENABLED true
 
 #define NUMERAL_X_PADDING 10
 #define NUMERAL_BOTTOM_PADDING 2
-#define OBSTRUCTION_ROW_SHIFT 8
+
 
 // Round-only spacing constants
 #if defined(PBL_PLATFORM_GABBRO)
     #define ROUND_NUMERAL_INSET_X 48  // horizontal inset for the numeral quad
     #define ROUND_NUMERAL_INSET_Y 30  // vertical inset for the numeral quad
-    #define ROUND_WIDGET_PADDING  8   // distance from screen edge to battery bar (top) and date (bottom)
+    #define ROUND_WIDGET_PADDING  12   // distance from screen edge to battery bar (top) and date (bottom)
 #else
     #define ROUND_NUMERAL_INSET_X 30
     #define ROUND_NUMERAL_INSET_Y 20  

@@ -51,11 +51,8 @@ void widgets_draw_battery_bar(GContext *ctx) {
     int base_y = bounds.origin.y + PBL_IF_ROUND_ELSE(0, WIDGET_OUTLINE_WIDTH + BATTERY_BAR_PADDING);
     int bar_height = bounds.size.h - PBL_IF_ROUND_ELSE(0, BATTERY_BAR_PADDING * 2);
     
-    // Calculate segment widths - each segment represents 25% of the full width.
-    // last_segment_width absorbs any remainder from integer division so the
-    // rightmost colored fill always reaches exactly main_bar_width at 100%.
+    // Calculate segment widths - each segment represents 25% of the full width
     int segment_width = full_width / 4;
-    int last_segment_width = full_width - segment_width * 3;
     int segment_75_100_width = 0;
     int segment_50_75_width = 0;
     int segment_25_50_width = 0;
@@ -65,15 +62,13 @@ void widgets_draw_battery_bar(GContext *ctx) {
     // Segments fill proportionally within their 25% range and are clamped by main bar width
     // Lower segments are always drawn at full width when battery is above their range
     if (main_bar_width > 0) {
-        // 75-100% segment: fills proportionally from 75% to 100%.
-        // Uses last_segment_width (not segment_width) so it absorbs any
-        // integer-division remainder and always reaches the right edge at 100%.
+        // 75-100% segment: fills proportionally from 75% to 100%
         if (battery_percent > 75) {
             int segment_start_x = segment_width * 3;
-            segment_75_100_width = (last_segment_width * (battery_percent - 75)) / 25;
-            // Clamp to last_segment_width and ensure it doesn't extend beyond main bar
-            if (segment_75_100_width > last_segment_width) {
-                segment_75_100_width = last_segment_width;
+            segment_75_100_width = (segment_width * (battery_percent - 75)) / 25;
+            // Clamp to segment width and ensure it doesn't extend beyond main bar
+            if (segment_75_100_width > segment_width) {
+                segment_75_100_width = segment_width;
             }
             if (segment_start_x + segment_75_100_width > main_bar_width) {
                 segment_75_100_width = (main_bar_width > segment_start_x) ? (main_bar_width - segment_start_x) : 0;
@@ -141,12 +136,24 @@ void widgets_draw_battery_bar(GContext *ctx) {
     // Draw main outlined filled rectangle (shrinks from full width to 0)
     // Draw this FIRST (bottom layer) so segments appear on top
     if (main_bar_width > 0) {
+        // Determine the exact right edge of the rightmost colored segment so the
+        // stroke rectangle wraps it precisely, regardless of integer-division gaps.
+        int fill_right_edge;
+        if (segment_75_100_width > 0) {
+            fill_right_edge = segment_width * 3 + segment_75_100_width;
+        } else if (segment_50_75_width > 0) {
+            fill_right_edge = segment_width * 2 + segment_50_75_width;
+        } else if (segment_25_50_width > 0) {
+            fill_right_edge = segment_width + segment_25_50_width;
+        } else {
+            fill_right_edge = segment_0_25_width;
+        }
+
         // Draw black background rectangle to emulate stroke (bottommost layer)
-        // This extends WIDGET_OUTLINE_WIDTH pixels on all sides
         GRect stroke_background = GRect(
             base_x - WIDGET_OUTLINE_WIDTH,
             base_y - WIDGET_OUTLINE_WIDTH,
-            main_bar_width + (WIDGET_OUTLINE_WIDTH * 2),
+            fill_right_edge + (WIDGET_OUTLINE_WIDTH * 2),
             bar_height + (WIDGET_OUTLINE_WIDTH * 2)
         );
         graphics_context_set_fill_color(ctx, GColorBlack);
