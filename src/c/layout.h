@@ -15,6 +15,7 @@
     #define DEFAULT_WIDGET_BAR_HEIGHT 18
 
     #define OBSTRUCTION_ROW_SHIFT 14
+    #define OBSTRUCTION_NUMERAL_PADDING 8
 
     #define DEFAULT_GRID_SPACING_X 32
     #define DEFAULT_GRID_SPACING_Y 32
@@ -27,10 +28,14 @@
     #define DEFAULT_WIDGET_BAR_HEIGHT PBL_IF_ROUND_ELSE(12, 16)
 
     #define OBSTRUCTION_ROW_SHIFT 8
+    #define OBSTRUCTION_NUMERAL_PADDING 4
 
     #define DEFAULT_GRID_SPACING_X 25
     #define DEFAULT_GRID_SPACING_Y 25
 #endif
+
+// Half-height of a numeral shape (shapes are always 80x80px, centered at 40,40)
+#define NUMERAL_HALF_SIZE 40
 
 #define DEFAULT_SCALE_SPEED_X 0.5f
 #define DEFAULT_SCALE_SPEED_Y 0.5f

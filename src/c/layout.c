@@ -32,12 +32,29 @@ void set_layout(GRect bounds, GRect unobstructed_bounds) {
     int numeral_area_h = unobstructed_bounds.size.h - layout->widget_bar_height - NUMERAL_BOTTOM_PADDING;
 #endif
 
-    // Calculate quadrant layout properties within numeral area,
-    // but reserve widget_bar_height at the top for widgets and NUMERAL_BOTTOM_PADDING at the bottom.
+    // Horizontal quad layout is always derived from the numeral area.
     layout->quad_center_x = numeral_area_x + numeral_area_w / 4;
-    layout->quad_center_y = numeral_area_y + numeral_area_h / 4;
-    layout->quad_width = numeral_area_w / 2;
-    layout->quad_height = numeral_area_h / 2;
+    layout->quad_width    = numeral_area_w / 2;
+
+    // Vertical quad layout:
+    // When obstructed on a rect display, pin the rows to fixed margins from each edge so
+    // that the top of the hours row and the bottom of the minutes row are each exactly
+    // OBSTRUCTION_NUMERAL_PADDING pixels from their respective screen boundaries.
+    // On round or when unobstructed, fall through to the standard centre-of-area placement.
+#ifndef PBL_ROUND
+    if (is_obstructed) {
+        int scaled_half = (int)(NUMERAL_HALF_SIZE * DEFAULT_TARGET_SCALE_Y);
+        int hours_center_y   = OBSTRUCTION_NUMERAL_PADDING + scaled_half;
+        int minutes_center_y = unobstructed_bounds.size.h - OBSTRUCTION_NUMERAL_PADDING - scaled_half;
+        layout->quad_center_y = hours_center_y;
+        layout->quad_height   = minutes_center_y - hours_center_y;
+    } else {
+#endif
+        layout->quad_center_y = numeral_area_y + numeral_area_h / 4;
+        layout->quad_height   = numeral_area_h / 2;
+#ifndef PBL_ROUND
+    }
+#endif
 
     // When obstructed, stagger rows horizontally: top row shifts left, bottom row shifts right
     int top_row_shift = is_obstructed ? -OBSTRUCTION_ROW_SHIFT : 0;

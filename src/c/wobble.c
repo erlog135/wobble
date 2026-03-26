@@ -701,6 +701,7 @@ static void prv_window_load(Window *window) {
     // Enable demo mode if configured
 #ifdef DEMO_MODE
     widgets_set_demo_mode(true);
+    light_enable(true);
 #endif
     
     // Mark background layer dirty for initial draw
@@ -753,6 +754,10 @@ static void prv_window_unload(Window *window) {
         layer_destroy(s_background_layer);
         s_background_layer = NULL;
     }
+    
+#ifdef DEMO_MODE
+    light_enable(false);
+#endif
 }
 
 static void prv_init(void) {
